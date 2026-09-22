@@ -18,17 +18,20 @@ from typing import Any, Optional
 
 from fastmcp import FastMCP
 
-from bcm_planner import bia_engine, db
+from bcm_planner import bcp_generator, bia_engine, db
 
 mcp = FastMCP(
     name="bcm-continuity-planner-mcp",
-    version="0.1.0",
+    version="0.2.0",
     instructions=(
-        "BIA Engine (Phase 1) for the BCM Continuity Planner: scope/hierarchy "
-        "CRUD, impact matrix configuration, MTPD/RTO/RPO/MBCO capture with "
-        "enforced RTO<MTPD, gap analysis with single-point-of-failure "
-        "detection, and recovery strategy selection. All write tools require "
-        "a valid application_users.user_id with a permitted role."
+        "BIA Engine (Phase 1) + Plan Generators (Phase 2) for the BCM "
+        "Continuity Planner: scope/hierarchy CRUD, impact matrix configuration, "
+        "MTPD/RTO/RPO/MBCO capture with enforced RTO<MTPD, gap analysis with "
+        "single-point-of-failure detection, recovery strategy selection, BCP "
+        "template builder + workflow generator (bc_plans/bcp_action_steps, "
+        "including rule-based auto-generation from a BIA + recovery strategy), "
+        "and Return-to-BAU procedures. All write tools require a valid "
+        "application_users.user_id with a permitted role."
     ),
 )
 
@@ -346,6 +349,190 @@ def list_recovery_strategies_by_bia(bia_id: str) -> list[dict[str, Any]]:
     """Lists all recovery strategy options for a BIA assessment."""
     with db.get_connection() as conn:
         return bia_engine.list_recovery_strategies_by_bia(conn, bia_id)
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 — BCP Template Builder & Workflow Generator (FR7)
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+def create_bc_plan(
+    user_id: str, organization_id: str, plan_tier: str, plan_title: str,
+    plan_owner: str, invocation_criteria: str, version: str = "1.0",
+    alternate_facility_details: Optional[str] = None, status: str = "Draft",
+) -> dict[str, Any]:
+    """Creates a Business Continuity Plan (bc_plans). plan_tier must be one
+    of 'strategic', 'tactical', 'operational'.
+    """
+    try:
+        with db.get_connection() as conn:
+            return bcp_generator.create_bc_plan(
+                conn, user_id, organization_id, plan_tier, plan_title, plan_owner,
+                invocation_criteria, version, alternate_facility_details, status,
+            )
+    except bcp_generator.BCMPlannerError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def get_bc_plan(plan_id: str) -> dict[str, Any]:
+    """Reads a single BC plan by ID."""
+    try:
+        with db.get_connection() as conn:
+            return bcp_generator.get_bc_plan(conn, plan_id)
+    except bcp_generator.BCMPlannerError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def list_bc_plans_by_organization(organization_id: str) -> list[dict[str, Any]]:
+    """Lists all BC plans for an organization, most recently created first."""
+    with db.get_connection() as conn:
+        return bcp_generator.list_bc_plans_by_organization(conn, organization_id)
+
+
+@mcp.tool()
+def update_bc_plan(user_id: str, plan_id: str, fields: dict[str, Any]) -> dict[str, Any]:
+    """Updates mutable fields on an existing BC plan.
+
+    `fields` may include: plan_tier, plan_title, version, plan_owner,
+    invocation_criteria, alternate_facility_details, status.
+    """
+    try:
+        with db.get_connection() as conn:
+            return bcp_generator.update_bc_plan(conn, user_id, plan_id, **fields)
+    except bcp_generator.BCMPlannerError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def create_bcp_action_step(
+    user_id: str, plan_id: str, step_number: int, responsible_role: str,
+    action_title: str, detailed_instructions: str,
+    timeframe_offset_minutes: Optional[int] = None,
+) -> dict[str, Any]:
+    """Creates an action step under a BC plan. step_number must be > 0."""
+    try:
+        with db.get_connection() as conn:
+            return bcp_generator.create_bcp_action_step(
+                conn, user_id, plan_id, step_number, responsible_role,
+                action_title, detailed_instructions, timeframe_offset_minutes,
+            )
+    except bcp_generator.BCMPlannerError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def list_bcp_action_steps_by_plan(plan_id: str) -> list[dict[str, Any]]:
+    """Lists all action steps for a BC plan, ordered by step_number."""
+    with db.get_connection() as conn:
+        return bcp_generator.list_bcp_action_steps_by_plan(conn, plan_id)
+
+
+@mcp.tool()
+def update_bcp_action_step(user_id: str, step_id: str, fields: dict[str, Any]) -> dict[str, Any]:
+    """Updates mutable fields on an existing BCP action step.
+
+    `fields` may include: step_number, responsible_role, action_title,
+    detailed_instructions, timeframe_offset_minutes.
+    """
+    try:
+        with db.get_connection() as conn:
+            return bcp_generator.update_bcp_action_step(conn, user_id, step_id, **fields)
+    except bcp_generator.BCMPlannerError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def generate_bcp_draft_from_bia(
+    user_id: str, bia_id: str, plan_tier: str = "operational",
+    plan_owner: Optional[str] = None, recovery_strategy_id: Optional[str] = None,
+) -> dict[str, Any]:
+    """Auto-populates a draft BC plan + starter action steps from an
+    existing BIA assessment, its activity's resource dependencies, and a
+    selected (or explicitly given) recovery strategy.
+
+    Rule-based generation, not AI-generated prose — see
+    docs/bcp_generation_rules.md for the full mapping. Returns
+    {"plan": <bc_plans row>, "action_steps": [<bcp_action_steps row>, ...]}.
+    """
+    try:
+        with db.get_connection() as conn:
+            return bcp_generator.generate_bcp_draft_from_bia(
+                conn, user_id, bia_id, plan_tier, plan_owner, recovery_strategy_id
+            )
+    except bcp_generator.BCMPlannerError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def get_bc_plan_provenance(plan_id: str) -> Optional[dict[str, Any]]:
+    """Reads back the auto-generation provenance record (source BIA/
+    activity/recovery strategy) for a BC plan, if it was auto-generated via
+    generate_bcp_draft_from_bia. Returns None for hand-authored plans.
+    """
+    with db.get_connection() as conn:
+        return bcp_generator.get_bc_plan_provenance(conn, plan_id)
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 — Return to BAU Module (FR8)
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+def create_bau_return_procedure(
+    user_id: str, plan_id: str, phase_number: int, title: str,
+    restoration_type: str, validation_criteria: str, action_steps: str,
+) -> dict[str, Any]:
+    """Creates a Return-to-BAU procedure phase under a BC plan."""
+    try:
+        with db.get_connection() as conn:
+            return bcp_generator.create_bau_return_procedure(
+                conn, user_id, plan_id, phase_number, title, restoration_type,
+                validation_criteria, action_steps,
+            )
+    except bcp_generator.BCMPlannerError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def list_bau_return_procedures_by_plan(plan_id: str) -> list[dict[str, Any]]:
+    """Lists all Return-to-BAU procedure phases for a BC plan, ordered by phase_number."""
+    with db.get_connection() as conn:
+        return bcp_generator.list_bau_return_procedures_by_plan(conn, plan_id)
+
+
+@mcp.tool()
+def update_bau_return_procedure(
+    user_id: str, bau_procedure_id: str, fields: dict[str, Any]
+) -> dict[str, Any]:
+    """Updates mutable fields on an existing Return-to-BAU procedure phase.
+
+    `fields` may include: phase_number, title, restoration_type,
+    validation_criteria, action_steps.
+    """
+    try:
+        with db.get_connection() as conn:
+            return bcp_generator.update_bau_return_procedure(conn, user_id, bau_procedure_id, **fields)
+    except bcp_generator.BCMPlannerError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def generate_bau_return_phases(user_id: str, plan_id: str) -> list[dict[str, Any]]:
+    """Auto-generates the standard 4-phase Return-to-BAU set for a BC plan:
+    Verify primary resource restoration -> Parallel run / validation ->
+    Cutover to primary -> Post-incident review handoff.
+
+    Rule-based generation — see docs/bcp_generation_rules.md section 2.
+    """
+    try:
+        with db.get_connection() as conn:
+            return bcp_generator.generate_bau_return_phases(conn, user_id, plan_id)
+    except bcp_generator.BCMPlannerError as exc:
+        return _err(exc)
 
 
 def main() -> None:

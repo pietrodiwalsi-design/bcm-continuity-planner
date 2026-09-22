@@ -34,7 +34,7 @@ set -a; . ./.env; set +a
 pytest tests/ -v
 ```
 
-Expected result at the time of writing: **14 passed**.
+Expected result at the time of writing: **35 passed** (14 Phase 1 `test_bia_engine.py` + 21 Phase 2 `test_bcp_generator.py`).
 
 ## What the suite covers
 
@@ -59,6 +59,36 @@ Expected result at the time of writing: **14 passed**.
   (`admin` / `bia_assessor`).
 - `test_audit_log_written_on_*` — every create/update through the BIA
   engine writes exactly one row to the append-only `audit_logs` table.
+
+### Phase 2 — `tests/test_bcp_generator.py` (21 tests)
+
+- `test_bc_plan_crud_roundtrip` / `test_bcp_action_step_crud_roundtrip` —
+  full CRUD round-trip for `bc_plans` and `bcp_action_steps`.
+- `test_bcp_action_step_step_number_*` — `step_number > 0` enforced by
+  both a Python pre-check and the DB CHECK constraint backstop (same
+  pattern as Phase 1's RTO<MTPD tests).
+- `test_generate_bcp_draft_from_bia_*` — auto-population produces an
+  `invocation_criteria` string referencing the BIA's actual MTPD/RTO/RPO
+  values, an `alternate_facility_details` value only for facility-implying
+  recovery strategy categories, action steps matching the selected
+  strategy's category template plus one step per resource dependency, and
+  a `document_versions` provenance row linking the plan back to its source
+  BIA/activity/recovery strategy. Also covers the "no selected strategy"
+  error case.
+- `test_bau_return_procedure_crud_roundtrip` — full CRUD round-trip for
+  `bau_return_procedures`.
+- `test_generate_bau_return_phases_produces_standard_phase_set` — confirms
+  the fixed 4-phase Return-to-BAU set (Verify primary resource restoration
+  → Parallel run/validation → Cutover to primary → Post-incident review
+  handoff) is generated in order.
+- `test_rbac_*` — same allow/deny pattern as Phase 1, reusing
+  `bia_engine.require_role`.
+- `test_audit_log_written_for_*` — audit log rows written for `bc_plans`,
+  `bcp_action_steps`, `bau_return_procedures`, and the two auto-generation
+  entry points.
+
+See `docs/bcp_generation_rules.md` for the exact rule-based mapping these
+tests verify.
 
 ## Test isolation
 

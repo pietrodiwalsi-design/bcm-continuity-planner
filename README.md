@@ -2,7 +2,7 @@
 
 Personal portfolio/demo tool for Business Impact Analysis (BIA), Business Continuity Plan (BCP), and Crisis Management Plan (CMP) development — built by Peter van Walsem to establish a market presence as a BCM specialist.
 
-**Status:** Phase 0 (repo scaffold) and Phase 1 (BIA Engine) complete. See the "Phase Status" table in [DEVELOPMENT_PLAN.md](./DEVELOPMENT_PLAN.md).
+**Status:** Phase 0 (repo scaffold), Phase 1 (BIA Engine), and Phase 2 (Plan Generators — BCP builder + Return-to-BAU module) complete. See the "Phase Status" table in [DEVELOPMENT_PLAN.md](./DEVELOPMENT_PLAN.md).
 
 ## Getting Started
 
@@ -33,6 +33,29 @@ pytest tests/ -v
 python3 scripts/export_dashboard_data.py
 ```
 
+### Trying the BCP generator (Phase 2)
+
+Once you have an activity with a `bia_assessments` row and a **selected**
+`recovery_strategies` row (Phase 1), generate a draft Business Continuity
+Plan and its Return-to-BAU phases via the MCP tools
+(`bcm_planner.bcp_generator`):
+
+```python
+from bcm_planner import db, bcp_generator
+
+with db.get_connection() as conn:
+    result = bcp_generator.generate_bcp_draft_from_bia(conn, user_id, bia_id)
+    plan_id = result["plan"]["plan_id"]
+    bcp_generator.generate_bau_return_phases(conn, user_id, plan_id)
+```
+
+This rule-based auto-population (invocation criteria from MTPD/RTO/RPO,
+action steps from the recovery strategy category + resource dependencies,
+standard 4-phase Return-to-BAU set) is documented in full in
+[docs/bcp_generation_rules.md](./docs/bcp_generation_rules.md). The
+dashboard's "Business Continuity Plans" section shows generated plans
+linked back to their source BIA.
+
 See [TESTING.md](./TESTING.md) for full test instructions and
 [DEVELOPMENT_PLAN.md](./DEVELOPMENT_PLAN.md) for architecture and phase status.
 
@@ -55,6 +78,7 @@ A GitHub prior-art check (documented in REQUIREMENTS.md) found no open-source to
 
 - [REQUIREMENTS.md](./REQUIREMENTS.md) — Full functional & non-functional requirements, scope decision, prior art check.
 - [DEVELOPMENT_PLAN.md](./DEVELOPMENT_PLAN.md) — High-level phased development plan (Phase 0–5) and next steps.
+- [docs/bcp_generation_rules.md](./docs/bcp_generation_rules.md) — Rule-based mapping used by the Phase 2 BCP/Return-to-BAU auto-generators (recovery strategy category → action step templates, standard BAU return phases).
 - [schema/001_core_schema.sql](./schema/001_core_schema.sql) — Core PostgreSQL schema (Peter's proposal).
 - [schema/002_rbac_approvals_review_additions.sql](./schema/002_rbac_approvals_review_additions.sql) — RBAC, sign-off workflow, review scheduler additions.
 - [schema/SCHEMA_REVIEW.md](./schema/SCHEMA_REVIEW.md) — Review of the schema proposal against requirements, gaps found and closed.

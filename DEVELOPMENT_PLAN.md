@@ -67,7 +67,7 @@ To keep documentation on-order as the build progresses (not just at kickoff):
 |---|---|---|
 | 0 | Data model & scope | **Complete** (2026-09-22). Schema (Peter's proposal + RBAC/sign-off/review additions) committed. Repo scaffold complete: `docker-compose.yml` (PostgreSQL 16-alpine, auto-applies 001+002 via docker-entrypoint-initdb.d), `src/bcm_planner/` package (`db.py`, `bia_engine.py`, `mcp_server.py`), `pyproject.toml`/`requirements.txt`, `.gitignore`. |
 | 1 | BIA Engine | **Complete** (2026-09-22). FastMCP tools for scope/hierarchy CRUD, impact matrix config, MTPD/RTO/RPO/MBCO capture (RTO<MTPD enforced), gap analysis + SPOF detection, recovery strategy selection ("only one selected" in app logic), RBAC write-gating, and append-only audit logging. 14/14 pytest tests passing against a live Postgres instance. Standalone HTML dashboard (`dashboard/`) with static JSON export (`scripts/export_dashboard_data.py`) verified end-to-end. See `CHANGELOG.md` (2026-09-22 entry) for full detail. |
-| 2 | Plan Generators | Not started |
+| 2 | Plan Generators | **Complete** (2026-09-22). BCP template builder + workflow generator (`bc_plans`/`bcp_action_steps` CRUD, rule-based auto-generation from a BIA + selected recovery strategy) and Return-to-BAU module (`bau_return_procedures` CRUD, standard 4-phase auto-generation). RBAC + audit logging reused unchanged from Phase 1. 21 new tests, 35/35 passing total. Dashboard extended with a BCP summary table. See `CHANGELOG.md` (2026-09-22 Phase 2 entry) and `docs/bcp_generation_rules.md` for full detail. |
 | 3 | Crisis Management | Not started |
 | 4 | Exercise & Test Planner | Not started |
 | 5 | Governance & Lifecycle | Not started |
@@ -93,6 +93,40 @@ To keep documentation on-order as the build progresses (not just at kickoff):
 - BCP template builder: auto-populate strategic/tactical/operational plans with role-based action steps, invocation criteria, alternate facility procedures — generated from Phase 1 BIA data, not a standalone module.
 - Return-to-BAU module: restoration/transition procedures back to primary or new permanent resources.
 - Covers FR7–FR8.
+
+**Delivered (2026-09-22):** `src/bcm_planner/bcp_generator.py` implements:
+- `bc_plans` CRUD (create/get/update/list-by-org) and `bcp_action_steps` CRUD
+  (create/get/update/list-by-plan), with `step_number > 0` enforced via a
+  Python pre-check plus the existing DB CHECK constraint as backstop (same
+  pattern as Phase 1's RTO<MTPD enforcement).
+- `generate_bcp_draft_from_bia(bia_id, ...)`: rule-based auto-population of
+  a draft `bc_plans` row (invocation_criteria derived from MTPD/RTO/RPO/
+  MBCO, alternate_facility_details copied from the strategy description
+  only for facility-implying categories) plus starter `bcp_action_steps`
+  (one fixed 3-step template per `strategy_category_enum` value, plus one
+  step per `activity_resource_dependencies` row). Mapping rules documented
+  in full in `docs/bcp_generation_rules.md`.
+- `bau_return_procedures` CRUD and `generate_bau_return_phases(plan_id)`:
+  auto-generates the standard 4-phase Return-to-BAU set (Verify primary
+  resource restoration → Parallel run/validation → Cutover to primary →
+  Post-incident review handoff).
+- Provenance (which BIA/activity/recovery strategy a plan was generated
+  from) recorded via a `document_versions` row (schema/002, no new
+  migration needed) rather than a new `bc_plans` column, read back via
+  `get_bc_plan_provenance`.
+- RBAC (`bia_engine.require_role`/`WRITE_ROLES`) and audit logging
+  (`bia_engine.log_audit`) reused unchanged — no second pattern introduced.
+- 35 FastMCP tools total registered in `mcp_server.py` (14 Phase 1 + 21
+  Phase 2 covering bc_plans/bcp_action_steps/bau_return_procedures CRUD +
+  the two auto-generation tools + provenance lookup).
+- Dashboard (`scripts/export_dashboard_data.py`, `dashboard/`) extended
+  with a "Business Continuity Plans" table: plan title/tier/status,
+  action step count, BAU return phase count, and source BIA/activity link
+  for auto-generated plans.
+- **Deferred to a Phase 2 follow-up:** no PDF/DOCX export of generated
+  BCPs yet (FR10/NFR10 territory, not required by the Phase 2 brief); no
+  UI for hand-editing a generated draft (data entry remains via MCP tools
+  per the same pattern as Phase 1).
 
 ### Phase 3 — Crisis Management
 - Crisis Management Team (CMT) role definitions (Crisis Comms Lead, Legal Counsel, IT/Security head, etc.) with severity-based escalation triggers.
@@ -125,5 +159,6 @@ To keep documentation on-order as the build progresses (not just at kickoff):
 - [x] Implement Phase 1 BIA engine (calculation logic, gap analysis, resource/dependency tracking).
 - [x] Build standalone HTML dashboard for BIA entry + gap analysis visualization (demo-facing). *(Read-only demo view via static JSON export, not a data-entry UI — data entry happens via the MCP tools per the Phase 1 brief.)*
 - [x] Write test suite for MTPD/RTO/RPO business rule enforcement. *(14 tests in `tests/test_bia_engine.py`, covering RTO<MTPD, hierarchy CRUD, gap analysis, SPOF detection, recovery strategy selection, RBAC, and audit logging — see `TESTING.md`.)*
-- [ ] Once Phase 1 is solid: Phase 2 plan generators, then Phase 3 crisis management module.
+- [x] Once Phase 1 is solid: Phase 2 plan generators. *(BCP template builder + workflow generator and Return-to-BAU module, both rule-based auto-generation from Phase 1 BIA data; see Phase 2 section above and `CHANGELOG.md`.)*
+- [ ] Phase 3 crisis management module (CMT roles, escalation, crisis comms/message bank).
 - [ ] Revisit Phase 4/5 after Peter has used the tool on at least one real (personal/demo) BIA case end-to-end.

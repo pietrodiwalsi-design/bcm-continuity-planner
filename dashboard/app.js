@@ -154,10 +154,50 @@ function renderSpofList(data) {
   container.appendChild(ul);
 }
 
+function renderBcpTable(data) {
+  const tbody = document.querySelector("#bcp-table tbody");
+  tbody.innerHTML = "";
+  const summaries = data.bc_plans_summary || [];
+  if (!summaries.length) {
+    document.getElementById("bcp-empty").style.display = "block";
+    return;
+  }
+  document.getElementById("bcp-empty").style.display = "none";
+
+  for (const { plan, action_step_count, bau_phase_count, provenance, source_activity_name } of summaries) {
+    const tr = el("tr");
+    tr.appendChild(el("td", { text: plan.plan_title }));
+    tr.appendChild(el("td", { text: plan.plan_tier }));
+    tr.appendChild(el("td", { text: plan.version }));
+
+    const statusCell = el("td");
+    const statusPillClass = plan.status === "Approved" ? "pill-green" : plan.status === "Draft" ? "pill-muted" : "pill-red";
+    statusCell.appendChild(el("span", { class: `pill ${statusPillClass}`, text: plan.status }));
+    tr.appendChild(statusCell);
+
+    tr.appendChild(el("td", { text: String(action_step_count) }));
+    tr.appendChild(el("td", { text: String(bau_phase_count) }));
+
+    const sourceCell = el("td");
+    if (provenance) {
+      sourceCell.appendChild(el("span", {
+        class: "strategy-selected",
+        text: `Auto-generated from ${source_activity_name || provenance.snapshot_json.source_activity_id} (BIA ${provenance.snapshot_json.source_bia_id})`,
+      }));
+    } else {
+      sourceCell.appendChild(el("span", { class: "pill pill-muted", text: "Hand-authored" }));
+    }
+    tr.appendChild(sourceCell);
+
+    tbody.appendChild(tr);
+  }
+}
+
 function render(data) {
   renderHierarchy(data);
   renderBiaTable(data);
   renderSpofList(data);
+  renderBcpTable(data);
 }
 
 loadData();
