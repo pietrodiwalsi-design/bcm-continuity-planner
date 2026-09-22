@@ -4,6 +4,236 @@ All notable changes to this project are documented in this file. Dates are
 in `YYYY-MM-DD` format. This file is the chronological record referenced by
 the Documentation Governance rules in `DEVELOPMENT_PLAN.md`.
 
+## 2026-09-22 — Phase 4 (Exercise & Test Planner) complete
+
+**Phase 4 — Exercise & Test Planner (`src/bcm_planner/exercise_planner.py` +
+`src/bcm_planner/scenario_injects.py` + `src/bcm_planner/exercise_debrief.py`,
+FastMCP tools registered in `bcm_planner.mcp_server`), covering FR11–FR13:**
+
+- **Modular Exercise & Test Planner (FR11, `exercise_planner.py`):**
+  - `exercise_programmes` CRUD: `create_exercise_programme`,
+    `get_exercise_programme`, `update_exercise_programme`,
+    `list_exercise_programmes_by_organization` — title,
+    `annual_schedule_year`, objectives, `approved_budget`, scoped to
+    `organization_id`.
+  - `exercises` CRUD: `create_exercise`, `get_exercise`, `update_exercise`,
+    `list_exercises_by_programme` — `category` (existing
+    `exercise_category_enum`: discussion_based/scenario_tabletop/
+    simulation/live/functional_test), title, planned_date,
+    lead_facilitator, scenario_description, status — linked to
+    `programme_id`. `create_exercise` validates the programme exists
+    first, raising `NotFoundError` rather than a raw FK violation.
+  - `get_disruption_scenario_template(scenario_type)`: a rule-based, pure
+    (no DB write) helper returning a suggested `scenario_description`,
+    suggested exercise `category`, and a short list of suggested
+    objectives for `power_outage`, `cyberattack_ddos`, `data_breach`,
+    `public_transit_disruption` (scenario_type keys deliberately reused
+    from Phase 3's `crisis_communications.HOLDING_STATEMENT_TEMPLATES`)
+    and `key_supplier_failure` (a Phase-4-only addition). Scenario type
+    strings are normalized the same way as Phase 3 (case/space/hyphen/
+    slash-insensitive). Full template set documented in the new
+    `docs/exercise_scenario_templates.md` (same pattern as
+    `docs/bcp_generation_rules.md` / `docs/crisis_communication_templates.md`).
+  - **Deliberate deviation from the Phase 3 pattern:** unlike
+    `generate_holding_statement_draft`'s generic fallback for an unknown
+    `scenario_type`, `get_disruption_scenario_template` **raises a clear
+    `BCMPlannerError`** (listing all known scenario types) for an
+    unrecognized value instead of silently returning generic content —
+    reasoned in `docs/exercise_scenario_templates.md`: a facilitator
+    planning a bespoke exercise scenario should get an explicit signal to
+    author their own content, not a mismatched template that looks
+    authoritative.
+
+- **Scenario Injects & Timeline Storyboarding (FR12,
+  `scenario_injects.py`):**
+  - `scenario_injects` CRUD: `create_scenario_inject`,
+    `get_scenario_inject`, `update_scenario_inject`,
+    `list_scenario_injects_by_exercise` — `sequence_number`,
+    `time_offset_minutes`, `inject_title`, `inject_content`,
+    `delivery_method`, `expected_team_action`, linked to `exercise_id`.
+  - `get_exercise_storyboard(exercise_id)`: returns all injects for an
+    exercise ordered by `time_offset_minutes`, but first validates that
+    `sequence_number` values are unique and strictly increase in lockstep
+    with `time_offset_minutes` order — raising a new
+    `StoryboardValidationError` with a specific, actionable message
+    (naming the duplicate `sequence_number`, or which two injects are out
+    of order) rather than silently returning a broken timeline. This is a
+    facilitator-authoring-error guard, not a database constraint (no
+    schema change), since the correct sequencing is a planning concern.
+  - `generate_injects_from_scenario_template(exercise_id, scenario_type)`:
+    rule-based/templated (not AI-generated prose) auto-generation of a
+    starter 4–5 inject set per `scenario_type` (same keys as
+    `get_disruption_scenario_template`), e.g. cyberattack_ddos: T+0
+    "Initial detection alert" → T+15 "IT confirms ransomware encryption
+    spreading" → T+45 "Media inquiry received" → T+90 "Regulator
+    notification deadline approaches" → T+180 "Systems restored from
+    backup, verification requested". Generated injects are already
+    time-ordered by construction, so the resulting storyboard always
+    passes `get_exercise_storyboard` validation. Validates the exercise
+    exists first (`NotFoundError`) and writes one aggregate audit log
+    entry in addition to the per-inject CREATE logs.
+
+- **Debrief, Hot-Debrief & Action Tracking (FR13, `exercise_debrief.py`):**
+  - `exercise_debriefs` CRUD: `create_exercise_debrief`,
+    `get_exercise_debrief`, `get_exercise_debrief_by_exercise`,
+    `update_exercise_debrief` — `hot_debrief_summary`,
+    `strengths_observed`, `weaknesses_observed`,
+    `opportunities_for_improvement`, `identified_threats_risks`,
+    `overall_rating`. **One debrief per `exercise_id`, enforced twice**:
+    a fast Python pre-check (`SELECT ... WHERE exercise_id = %s`) raising
+    a new `DuplicateDebriefError` with a clear message, plus the existing
+    DB `UNIQUE(exercise_id)` constraint as an authoritative backstop
+    (translated via `SAVEPOINT`/`UniqueViolation` catch into the same
+    clean error, never a raw psycopg traceback) — identical pattern to
+    Phase 1's `RTOConstraintViolation` and Phase 2's `step_number > 0`
+    enforcement.
+  - `capa_action_items` CRUD: `create_capa_action_item`,
+    `get_capa_action_item`, `update_capa_action_item`,
+    `list_capa_action_items_by_debrief` — `gap_description`,
+    `corrective_action_required`, `assigned_owner`, `due_date`, `status`,
+    `completion_date`, linked to `debrief_id`.
+  - `get_overdue_capa_items(organization_id)` /
+    `get_open_capa_items(organization_id)`: since neither
+    `capa_action_items` nor `exercises` carry a direct
+    `organization_id` column, both helpers join
+    `capa_action_items -> exercise_debriefs -> exercises ->
+    exercise_programmes` to resolve organization scope. "Overdue" =
+    `due_date < CURRENT_DATE` and `status` not case-insensitively
+    `Completed`/`Verified`; "open" = same completion check, any due date.
+    This is the FR13 follow-through demo feature — showing the tool
+    tracks whether corrective actions actually get closed out, not just
+    that exercises happened.
+
+- **RBAC + audit logging:** all three new modules reuse
+  `bia_engine.require_role` (same `WRITE_ROLES` allow-list,
+  `InsufficientRoleError`) and `bia_engine.log_audit` unchanged — no
+  second RBAC or logging pattern introduced. `mcp_server.py` gained new
+  FastMCP tools covering every Phase 4 CRUD + helper function, version
+  bumped to `0.4.0`.
+
+- **No schema changes required.** `exercise_programmes`, `exercises`,
+  `scenario_injects`, `exercise_debriefs`, and `capa_action_items` were
+  already fully defined in `schema/001_core_schema.sql` (from the
+  original schema proposal reviewed in `schema/SCHEMA_REVIEW.md`) —
+  Phase 4 required zero migration work, only application-layer CRUD plus
+  three rule-based helpers and two cross-table read-only aggregation
+  helpers on top of existing tables.
+
+**Tests (`tests/test_exercise_planner.py`, 34 new tests, reusing the
+shared `conn`/`org` fixtures from `tests/conftest.py` plus new local
+`programme`/`exercise`/`debrief` fixtures) — full suite now 91/91 passing
+(57 pre-existing + 34 new) against a live Postgres instance via
+docker-compose:**
+
+- `exercise_programmes` and `exercises` CRUD round-trips, including
+  no-field/unknown-field update error cases, not-found cases, and an
+  unknown-programme-id create raising `NotFoundError`.
+- `get_disruption_scenario_template`: sensible content for
+  `power_outage`, `cyberattack_ddos` (with normalized/mixed-case input),
+  and `key_supplier_failure`; the unknown-scenario-type case asserts the
+  raised error names both the bad input and the list of known types (the
+  documented "error, not fallback" behavior).
+- `scenario_injects` CRUD round-trip.
+- `get_exercise_storyboard`: correct time ordering across
+  out-of-insertion-order injects; empty storyboard for a new exercise;
+  `StoryboardValidationError` for a duplicate `sequence_number`; and
+  `StoryboardValidationError` for a `sequence_number` that doesn't track
+  `time_offset_minutes` order.
+- `generate_injects_from_scenario_template`: plausible 3–5-item,
+  time-ordered (starting at offset 0) sets for both `power_outage` and
+  `cyberattack_ddos`, cross-checked against `get_exercise_storyboard`;
+  unknown exercise_id and unknown scenario_type error cases.
+- `exercise_debriefs` CRUD round-trip; a second `create_exercise_debrief`
+  call for the same `exercise_id` raises `DuplicateDebriefError` with a
+  clear "already has a debrief" message (not a raw DB traceback).
+- `capa_action_items` CRUD round-trip; unknown-debrief-id create raises
+  `NotFoundError`.
+- `get_overdue_capa_items`: a 3-item fixture set (one genuinely overdue
+  and open, one open but not yet due, one overdue-by-date but already
+  Completed) confirms only the genuinely-overdue-and-open item is
+  returned.
+- `get_open_capa_items`: confirms a not-yet-due Open item is included and
+  a Verified item is excluded.
+- `test_rbac_*` — same allow/deny pattern as Phase 1/2/3, covering
+  `exercise_programmes`, `exercises`, `scenario_injects`,
+  `exercise_debriefs`, and `capa_action_items` create paths.
+- `test_audit_log_written_for_*` — audit log rows written for all five
+  new entity types: `exercise_programmes`, `exercises`,
+  `scenario_injects`, `exercise_debriefs`, `capa_action_items`.
+
+See `TESTING.md` for exact run instructions (Phase 4 section to be added
+alongside this entry).
+
+**Dashboard (demo-facing, static export — extended, not rebuilt):**
+
+- `scripts/export_dashboard_data.py`: now also exports `exercises_summary`
+  (each exercise joined with its programme, plus a computed
+  `inject_count` and `debrief` status/`overall_rating` if one exists) and
+  `overdue_capa_by_organization` (using the new
+  `exercise_debrief.get_overdue_capa_items` helper directly, grouped per
+  organization).
+- `dashboard/index.html` + `app.js`: new **"Exercises & Tests"** section
+  (title, category, planned_date, color-coded status pill, inject count,
+  debrief status/rating) and a new **"Open / Overdue CAPA Action
+  Items"** section (exercise title, gap_description, assigned_owner,
+  due_date, status pill).
+- **Deliberately did NOT include full `scenario_injects` content or
+  `exercise_debriefs` narrative text in the dashboard** — kept to summary
+  counts (inject count, debrief present/rating only) per the Phase 4
+  brief, to avoid a cluttered demo view; same "summary, not full content"
+  principle as Phase 3's decision to exclude `message_bank`/
+  `stakeholder_contact_matrices` text.
+- Verified end-to-end: seeded a demo organization → exercise programme →
+  exercise (using `get_disruption_scenario_template("cyberattack_ddos")`
+  for its category/description) → 5 generated injects → a debrief → one
+  deliberately-overdue CAPA item, ran `export_dashboard_data.py`, and
+  confirmed `dashboard/data.json` contains the expected
+  `exercises_summary` entry (`inject_count: 5`, debrief present with
+  rating) and `overdue_capa_by_organization` entry (1 overdue item);
+  demo/seed data was then deleted so as not to leave test rows in the
+  shipped repo state.
+
+**Documentation governance:**
+
+- This `CHANGELOG.md` entry.
+- `docs/exercise_scenario_templates.md` created — the single
+  source-of-truth for the Phase 4 rule-based templates (disruption
+  scenario templates, inject templates, storyboard validation rules).
+  Linked from `README.md`.
+- `DEVELOPMENT_PLAN.md` "Phase Status" table updated: Phase 4 marked
+  **Complete** with a summary; Phase 4 section under "Phased Build Plan"
+  expanded with a "Delivered" sub-section.
+- `README.md` updated: "Status" line, a new "Trying the Exercise & Test
+  Planner (Phase 4)" subsection under Getting Started, and a link to
+  `docs/exercise_scenario_templates.md` in the Documents list.
+- No changes made to `schema/001_core_schema.sql` or
+  `schema/002_rbac_approvals_review_additions.sql` — confirmed no new
+  migration was needed (see `schema/SCHEMA_REVIEW.md`; no new note added
+  since nothing changed there).
+
+**Known limitations / deviations, disclosed honestly:**
+
+- The storyboard-ordering rule (`sequence_number` must strictly increase
+  in lockstep with `time_offset_minutes`) is a straightforward, fully
+  documented invariant, not a configurable facilitation/scheduling engine
+  — consistent with the "personal portfolio/demo tool, data model + 
+  rule-based content generation + tracking only" scope decision in
+  `REQUIREMENTS.md`.
+- No live/real-time multi-user exercise-running UI, no
+  calendar/scheduling integration, and no facilitator-facing broadcast
+  tooling was built — explicitly out of scope per the Phase 4 brief.
+- `get_overdue_capa_items`/`get_open_capa_items` treat `status` matching
+  case-insensitively against a small fixed set (`Completed`, `Verified`)
+  as "done" — not a configurable workflow/state machine; any other status
+  string (including typos) is treated as still open, which is a
+  deliberate "fail open" choice (an item should stay visible as a
+  follow-up unless explicitly marked done) rather than a bug, but is
+  called out here for transparency.
+- No PDF/DOCX export of an "Exercise Report" combining debrief + CAPA
+  items into a single document was built — out of scope for FR11–FR13
+  specifically; data is accessible via the MCP CRUD tools and the
+  (partial, summary-only) dashboard view, same pattern as prior phases.
+
 ## 2026-09-22 — Phase 3 (Crisis Management) complete
 
 **Phase 3 — Crisis Management (`src/bcm_planner/crisis_management.py` +

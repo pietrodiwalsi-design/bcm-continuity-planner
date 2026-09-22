@@ -34,7 +34,7 @@ set -a; . ./.env; set +a
 pytest tests/ -v
 ```
 
-Expected result at the time of writing: **57 passed** (14 Phase 1 `test_bia_engine.py` + 21 Phase 2 `test_bcp_generator.py` + 22 Phase 3 `test_crisis_management.py`).
+Expected result at the time of writing: **91 passed** (14 Phase 1 `test_bia_engine.py` + 21 Phase 2 `test_bcp_generator.py` + 22 Phase 3 `test_crisis_management.py` + 34 Phase 4 `test_exercise_planner.py`).
 
 ## What the suite covers
 
@@ -126,6 +126,50 @@ tests verify.
 
 See `docs/crisis_communication_templates.md` for the exact holding
 statement template set and escalation-path heuristic these tests verify.
+
+### Phase 4 — `tests/test_exercise_planner.py` (34 tests)
+
+- `test_exercise_programme_crud_roundtrip` / `test_exercise_crud_roundtrip`
+  — full CRUD round-trip for `exercise_programmes` and `exercises`,
+  including no-field/unknown-field update error cases and an
+  unknown-programme-id create raising `NotFoundError`.
+- `test_exercise_invalid_category_raises` — an invalid `category` value
+  is rejected by the DB's `exercise_category_enum`.
+- `test_get_disruption_scenario_template_*` — sensible content for
+  `power_outage`, `cyberattack_ddos` (with normalized/mixed-case input),
+  and `key_supplier_failure`; `test_get_disruption_scenario_template_unknown_type_raises_documented_error`
+  confirms the deliberate "error, not fallback" behavior for an
+  unrecognized scenario type (unlike Phase 3's holding statement
+  generator).
+- `test_scenario_inject_crud_roundtrip` — full CRUD round-trip for
+  `scenario_injects`.
+- `test_get_exercise_storyboard_*` — correct time ordering across
+  out-of-insertion-order injects; empty storyboard for a new exercise;
+  `StoryboardValidationError` for a duplicate `sequence_number` and for a
+  `sequence_number` that doesn't track `time_offset_minutes` order.
+- `test_generate_injects_from_scenario_template_*` — plausible 3–5-item,
+  time-ordered inject sets for `power_outage` and `cyberattack_ddos`,
+  cross-checked against `get_exercise_storyboard`; unknown-exercise and
+  unknown-scenario-type error cases.
+- `test_exercise_debrief_crud_roundtrip` — full CRUD round-trip for
+  `exercise_debriefs`; `test_second_debrief_for_same_exercise_raises_clear_error`
+  confirms a second debrief for the same `exercise_id` raises
+  `DuplicateDebriefError` with a clear message, not a raw DB traceback.
+- `test_capa_action_item_crud_roundtrip` — full CRUD round-trip for
+  `capa_action_items`; unknown-debrief-id create raises `NotFoundError`.
+- `test_get_overdue_capa_items_identifies_overdue_not_ontrack` /
+  `test_get_open_capa_items_includes_not_yet_due_open_items` — confirm the
+  overdue-vs-on-track-vs-completed distinction and the open-vs-verified
+  distinction.
+- `test_rbac_*` — same allow/deny pattern as Phase 1/2/3, covering all
+  five new entity types' create paths.
+- `test_audit_log_written_for_*` — audit log rows written for
+  `exercise_programmes`, `exercises`, `scenario_injects`,
+  `exercise_debriefs`, and `capa_action_items`.
+
+See `docs/exercise_scenario_templates.md` for the exact disruption
+scenario templates, inject templates, and storyboard validation rules
+these tests verify.
 
 ## Test isolation
 

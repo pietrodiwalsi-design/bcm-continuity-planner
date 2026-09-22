@@ -2,7 +2,7 @@
 
 Personal portfolio/demo tool for Business Impact Analysis (BIA), Business Continuity Plan (BCP), and Crisis Management Plan (CMP) development — built by Peter van Walsem to establish a market presence as a BCM specialist.
 
-**Status:** Phase 0 (repo scaffold), Phase 1 (BIA Engine), Phase 2 (Plan Generators — BCP builder + Return-to-BAU module), and Phase 3 (Crisis Management — CMT roles/escalation mapping + crisis communications/message bank builder) complete. See the "Phase Status" table in [DEVELOPMENT_PLAN.md](./DEVELOPMENT_PLAN.md).
+**Status:** Phase 0 (repo scaffold), Phase 1 (BIA Engine), Phase 2 (Plan Generators — BCP builder + Return-to-BAU module), Phase 3 (Crisis Management — CMT roles/escalation mapping + crisis communications/message bank builder), and Phase 4 (Exercise & Test Planner — exercise programme/exercise CRUD, disruption scenario templates, scenario inject storyboarding, debrief + CAPA action tracking) complete. See the "Phase Status" table in [DEVELOPMENT_PLAN.md](./DEVELOPMENT_PLAN.md).
 
 ## Getting Started
 
@@ -90,6 +90,55 @@ Summary" sections show this data read-only; `message_bank` and
 the dashboard (draft messaging text / named contacts, not general-demo
 appropriate — see `CHANGELOG.md`).
 
+### Trying the Exercise & Test Planner (Phase 4)
+
+Exercises are scoped under an `exercise_programmes` row (per organization,
+per year). A disruption scenario template gives you a suggested
+scenario_description/category/objectives, and a matching starter set of
+time-phased injects, without writing any prose yourself:
+
+```python
+import datetime
+from bcm_planner import db, exercise_planner, scenario_injects, exercise_debrief
+
+with db.get_connection() as conn:
+    programme = exercise_planner.create_exercise_programme(
+        conn, user_id, organization_id, "2026 Exercise Programme", 2026, "Objectives."
+    )
+    template = exercise_planner.get_disruption_scenario_template("cyberattack_ddos")
+    exercise = exercise_planner.create_exercise(
+        conn, user_id, programme["programme_id"], template["suggested_category"],
+        "Cyberattack Tabletop", datetime.date(2026, 10, 1), "Facilitator Name",
+        template["suggested_scenario_description"],
+    )
+    injects = scenario_injects.generate_injects_from_scenario_template(
+        conn, user_id, exercise["exercise_id"], "cyberattack_ddos"
+    )
+    storyboard = scenario_injects.get_exercise_storyboard(conn, exercise["exercise_id"])
+
+    debrief = exercise_debrief.create_exercise_debrief(
+        conn, user_id, exercise["exercise_id"], "Hot debrief summary.", overall_rating="Satisfactory"
+    )
+    exercise_debrief.create_capa_action_item(
+        conn, user_id, debrief["debrief_id"], "Gap found.", "Corrective action.",
+        "Owner Name", datetime.date(2026, 12, 31),
+    )
+    overdue = exercise_debrief.get_overdue_capa_items(conn, organization_id)
+```
+
+`get_disruption_scenario_template` **raises a clear error** (not a
+silent generic fallback) for an unrecognized `scenario_type` —
+facilitators should author a bespoke scenario rather than get mismatched
+templated content. `get_exercise_storyboard` validates inject
+`sequence_number`/`time_offset_minutes` ordering and raises a
+`StoryboardValidationError` on a broken timeline. Only one debrief is
+permitted per exercise. The full template set, inject design philosophy,
+and storyboard validation rules are documented in
+[docs/exercise_scenario_templates.md](./docs/exercise_scenario_templates.md).
+The dashboard's "Exercises & Tests" and "Open / Overdue CAPA Action
+Items" sections show summary counts only — full inject content and
+debrief narrative text are intentionally not shown in the demo dashboard.
+
 See [TESTING.md](./TESTING.md) for full test instructions and
 [DEVELOPMENT_PLAN.md](./DEVELOPMENT_PLAN.md) for architecture and phase status.
 
@@ -114,6 +163,7 @@ A GitHub prior-art check (documented in REQUIREMENTS.md) found no open-source to
 - [DEVELOPMENT_PLAN.md](./DEVELOPMENT_PLAN.md) — High-level phased development plan (Phase 0–5) and next steps.
 - [docs/bcp_generation_rules.md](./docs/bcp_generation_rules.md) — Rule-based mapping used by the Phase 2 BCP/Return-to-BAU auto-generators (recovery strategy category → action step templates, standard BAU return phases).
 - [docs/crisis_communication_templates.md](./docs/crisis_communication_templates.md) — Rule-based holding statement template set used by the Phase 3 `generate_holding_statement_draft` helper, and the escalation-path notification heuristic used by `get_escalation_path_for_severity`.
+- [docs/exercise_scenario_templates.md](./docs/exercise_scenario_templates.md) — Rule-based disruption scenario template set used by the Phase 4 `get_disruption_scenario_template` helper, the matching inject templates used by `generate_injects_from_scenario_template`, and the storyboard validation rules used by `get_exercise_storyboard`.
 - [schema/001_core_schema.sql](./schema/001_core_schema.sql) — Core PostgreSQL schema (Peter's proposal).
 - [schema/002_rbac_approvals_review_additions.sql](./schema/002_rbac_approvals_review_additions.sql) — RBAC, sign-off workflow, review scheduler additions.
 - [schema/SCHEMA_REVIEW.md](./schema/SCHEMA_REVIEW.md) — Review of the schema proposal against requirements, gaps found and closed.

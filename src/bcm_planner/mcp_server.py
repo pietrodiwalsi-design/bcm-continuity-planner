@@ -18,24 +18,37 @@ from typing import Any, Optional
 
 from fastmcp import FastMCP
 
-from bcm_planner import bcp_generator, bia_engine, crisis_communications, crisis_management, db
+from bcm_planner import (
+    bcp_generator,
+    bia_engine,
+    crisis_communications,
+    crisis_management,
+    db,
+    exercise_debrief,
+    exercise_planner,
+    scenario_injects,
+)
 
 mcp = FastMCP(
     name="bcm-continuity-planner-mcp",
-    version="0.3.0",
+    version="0.4.0",
     instructions=(
         "BIA Engine (Phase 1) + Plan Generators (Phase 2) + Crisis Management "
-        "(Phase 3) for the BCM Continuity Planner: scope/hierarchy CRUD, impact "
-        "matrix configuration, MTPD/RTO/RPO/MBCO capture with enforced "
-        "RTO<MTPD, gap analysis with single-point-of-failure detection, "
-        "recovery strategy selection, BCP template builder + workflow "
-        "generator (bc_plans/bcp_action_steps, including rule-based "
-        "auto-generation from a BIA + recovery strategy), Return-to-BAU "
-        "procedures, Crisis Management Team (CMT) role + escalation trigger "
-        "CRUD with a severity-based escalation path helper, and Crisis "
-        "Communication stakeholder contact matrix + message bank CRUD with a "
-        "rule-based (draft-only, never legally pre-approved) holding "
-        "statement generator. All write tools require a valid "
+        "(Phase 3) + Exercise & Test Planner (Phase 4) for the BCM Continuity "
+        "Planner: scope/hierarchy CRUD, impact matrix configuration, "
+        "MTPD/RTO/RPO/MBCO capture with enforced RTO<MTPD, gap analysis with "
+        "single-point-of-failure detection, recovery strategy selection, BCP "
+        "template builder + workflow generator (bc_plans/bcp_action_steps, "
+        "including rule-based auto-generation from a BIA + recovery "
+        "strategy), Return-to-BAU procedures, Crisis Management Team (CMT) "
+        "role + escalation trigger CRUD with a severity-based escalation path "
+        "helper, Crisis Communication stakeholder contact matrix + message "
+        "bank CRUD with a rule-based (draft-only, never legally pre-approved) "
+        "holding statement generator, exercise programme/exercise CRUD with a "
+        "rule-based disruption scenario template helper, scenario inject/"
+        "storyboard CRUD with timeline validation and rule-based inject "
+        "generation, and exercise debrief + CAPA action item CRUD with an "
+        "overdue-CAPA tracking helper. All write tools require a valid "
         "application_users.user_id with a permitted role."
     ),
 )
@@ -783,6 +796,351 @@ def generate_holding_statement_draft(scenario_type: str, target_audience: str) -
     persist it.
     """
     return crisis_communications.generate_holding_statement_draft(scenario_type, target_audience)
+
+
+# ---------------------------------------------------------------------------
+# Phase 4 — Modular Exercise & Test Planner (FR11)
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+def create_exercise_programme(
+    user_id: str, organization_id: str, title: str, annual_schedule_year: int,
+    objectives: str, approved_budget: Optional[float] = None,
+) -> dict[str, Any]:
+    """Creates an annual exercise/test programme for an organization."""
+    try:
+        with db.get_connection() as conn:
+            return exercise_planner.create_exercise_programme(
+                conn, user_id, organization_id, title, annual_schedule_year, objectives, approved_budget,
+            )
+    except exercise_planner.BCMPlannerError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def get_exercise_programme(programme_id: str) -> dict[str, Any]:
+    """Reads a single exercise programme by ID."""
+    try:
+        with db.get_connection() as conn:
+            return exercise_planner.get_exercise_programme(conn, programme_id)
+    except exercise_planner.BCMPlannerError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def list_exercise_programmes_by_organization(organization_id: str) -> list[dict[str, Any]]:
+    """Lists all exercise programmes for an organization, most recent year first."""
+    with db.get_connection() as conn:
+        return exercise_planner.list_exercise_programmes_by_organization(conn, organization_id)
+
+
+@mcp.tool()
+def update_exercise_programme(user_id: str, programme_id: str, fields: dict[str, Any]) -> dict[str, Any]:
+    """Updates mutable fields on an existing exercise programme.
+
+    `fields` may include: title, annual_schedule_year, objectives, approved_budget.
+    """
+    try:
+        with db.get_connection() as conn:
+            return exercise_planner.update_exercise_programme(conn, user_id, programme_id, **fields)
+    except exercise_planner.BCMPlannerError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def create_exercise(
+    user_id: str, programme_id: str, category: str, title: str, planned_date: str,
+    lead_facilitator: str, scenario_description: str, status: str = "Scheduled",
+) -> dict[str, Any]:
+    """Creates an exercise under a programme. category must be one of
+    exercise_category_enum's values (discussion_based/scenario_tabletop/
+    simulation/live/functional_test). planned_date is an ISO date string.
+    """
+    try:
+        parsed_date = datetime.date.fromisoformat(planned_date)
+        with db.get_connection() as conn:
+            return exercise_planner.create_exercise(
+                conn, user_id, programme_id, category, title, parsed_date,
+                lead_facilitator, scenario_description, status,
+            )
+    except exercise_planner.BCMPlannerError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def get_exercise(exercise_id: str) -> dict[str, Any]:
+    """Reads a single exercise by ID."""
+    try:
+        with db.get_connection() as conn:
+            return exercise_planner.get_exercise(conn, exercise_id)
+    except exercise_planner.BCMPlannerError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def list_exercises_by_programme(programme_id: str) -> list[dict[str, Any]]:
+    """Lists all exercises under a programme, ordered by planned_date."""
+    with db.get_connection() as conn:
+        return exercise_planner.list_exercises_by_programme(conn, programme_id)
+
+
+@mcp.tool()
+def update_exercise(user_id: str, exercise_id: str, fields: dict[str, Any]) -> dict[str, Any]:
+    """Updates mutable fields on an existing exercise.
+
+    `fields` may include: category, title, planned_date (ISO string),
+    lead_facilitator, scenario_description, status.
+    """
+    try:
+        parsed = dict(fields)
+        if "planned_date" in parsed and isinstance(parsed["planned_date"], str):
+            parsed["planned_date"] = datetime.date.fromisoformat(parsed["planned_date"])
+        with db.get_connection() as conn:
+            return exercise_planner.update_exercise(conn, user_id, exercise_id, **parsed)
+    except exercise_planner.BCMPlannerError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def get_disruption_scenario_template(scenario_type: str) -> dict[str, Any]:
+    """Returns a pre-configured disruption scenario template (suggested
+    scenario_description, suggested exercise category, suggested
+    objectives) for a recognized scenario_type (power_outage,
+    cyberattack_ddos, data_breach, public_transit_disruption,
+    key_supplier_failure). Raises a clear error for an unrecognized
+    scenario_type rather than fabricating a generic template — see
+    docs/exercise_scenario_templates.md. Does not write to the database.
+    """
+    try:
+        return exercise_planner.get_disruption_scenario_template(scenario_type)
+    except exercise_planner.BCMPlannerError as exc:
+        return _err(exc)
+
+
+# ---------------------------------------------------------------------------
+# Phase 4 — Scenario Injects & Timeline Storyboarding (FR12)
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+def create_scenario_inject(
+    user_id: str, exercise_id: str, sequence_number: int, time_offset_minutes: int,
+    inject_title: str, inject_content: str, delivery_method: str, expected_team_action: str,
+) -> dict[str, Any]:
+    """Creates a scenario inject under an exercise. No ordering validation
+    happens on a single insert — call get_exercise_storyboard(exercise_id)
+    after authoring a full inject set to validate the storyboard.
+    """
+    try:
+        with db.get_connection() as conn:
+            return scenario_injects.create_scenario_inject(
+                conn, user_id, exercise_id, sequence_number, time_offset_minutes,
+                inject_title, inject_content, delivery_method, expected_team_action,
+            )
+    except scenario_injects.BCMPlannerError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def get_scenario_inject(inject_id: str) -> dict[str, Any]:
+    """Reads a single scenario inject by ID."""
+    try:
+        with db.get_connection() as conn:
+            return scenario_injects.get_scenario_inject(conn, inject_id)
+    except scenario_injects.BCMPlannerError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def list_scenario_injects_by_exercise(exercise_id: str) -> list[dict[str, Any]]:
+    """Lists all scenario injects for an exercise, ordered by
+    time_offset_minutes (does not validate ordering — see
+    get_exercise_storyboard for the validated read).
+    """
+    with db.get_connection() as conn:
+        return scenario_injects.list_scenario_injects_by_exercise(conn, exercise_id)
+
+
+@mcp.tool()
+def update_scenario_inject(user_id: str, inject_id: str, fields: dict[str, Any]) -> dict[str, Any]:
+    """Updates mutable fields on an existing scenario inject.
+
+    `fields` may include: sequence_number, time_offset_minutes,
+    inject_title, inject_content, delivery_method, expected_team_action.
+    """
+    try:
+        with db.get_connection() as conn:
+            return scenario_injects.update_scenario_inject(conn, user_id, inject_id, **fields)
+    except scenario_injects.BCMPlannerError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def get_exercise_storyboard(exercise_id: str) -> dict[str, Any]:
+    """Returns the validated, time-ordered storyboard (scenario_injects)
+    for an exercise. Raises a clear error (surfaced as {"error":
+    "StoryboardValidationError", ...}) if sequence_number values are
+    duplicated or do not strictly increase with time_offset_minutes order
+    — a facilitator authoring error, not silently allowed through.
+    """
+    try:
+        with db.get_connection() as conn:
+            return scenario_injects.get_exercise_storyboard(conn, exercise_id)
+    except scenario_injects.BCMPlannerError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def generate_injects_from_scenario_template(user_id: str, exercise_id: str, scenario_type: str) -> list[dict[str, Any]]:
+    """Auto-generates a starter set of 3-5 time-phased scenario injects for
+    an existing exercise, appropriate to scenario_type (same values as
+    get_disruption_scenario_template). Rule-based/templated, not
+    AI-generated prose — see docs/exercise_scenario_templates.md. Raises a
+    clear error for an unrecognized scenario_type or unknown exercise_id.
+    """
+    try:
+        with db.get_connection() as conn:
+            return scenario_injects.generate_injects_from_scenario_template(conn, user_id, exercise_id, scenario_type)
+    except scenario_injects.BCMPlannerError as exc:
+        return _err(exc)
+
+
+# ---------------------------------------------------------------------------
+# Phase 4 — Debrief, Hot-Debrief & Action Tracking (FR13)
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+def create_exercise_debrief(
+    user_id: str, exercise_id: str, hot_debrief_summary: str,
+    strengths_observed: Optional[str] = None, weaknesses_observed: Optional[str] = None,
+    opportunities_for_improvement: Optional[str] = None, identified_threats_risks: Optional[str] = None,
+    overall_rating: Optional[str] = None,
+) -> dict[str, Any]:
+    """Creates a debrief for an exercise. Only one debrief is permitted per
+    exercise_id — a second attempt returns a clear DuplicateDebriefError,
+    not a raw database constraint traceback.
+    """
+    try:
+        with db.get_connection() as conn:
+            return exercise_debrief.create_exercise_debrief(
+                conn, user_id, exercise_id, hot_debrief_summary, strengths_observed,
+                weaknesses_observed, opportunities_for_improvement, identified_threats_risks, overall_rating,
+            )
+    except exercise_debrief.BCMPlannerError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def get_exercise_debrief(debrief_id: str) -> dict[str, Any]:
+    """Reads a single exercise debrief by ID."""
+    try:
+        with db.get_connection() as conn:
+            return exercise_debrief.get_exercise_debrief(conn, debrief_id)
+    except exercise_debrief.BCMPlannerError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def get_exercise_debrief_by_exercise(exercise_id: str) -> Optional[dict[str, Any]]:
+    """Reads the debrief for an exercise_id, if one exists. Returns None
+    (not an error) if no debrief has been recorded yet.
+    """
+    with db.get_connection() as conn:
+        return exercise_debrief.get_exercise_debrief_by_exercise(conn, exercise_id)
+
+
+@mcp.tool()
+def update_exercise_debrief(user_id: str, debrief_id: str, fields: dict[str, Any]) -> dict[str, Any]:
+    """Updates mutable fields on an existing exercise debrief.
+
+    `fields` may include: hot_debrief_summary, strengths_observed,
+    weaknesses_observed, opportunities_for_improvement,
+    identified_threats_risks, overall_rating.
+    """
+    try:
+        with db.get_connection() as conn:
+            return exercise_debrief.update_exercise_debrief(conn, user_id, debrief_id, **fields)
+    except exercise_debrief.BCMPlannerError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def create_capa_action_item(
+    user_id: str, debrief_id: str, gap_description: str, corrective_action_required: str,
+    assigned_owner: str, due_date: str, status: str = "Open", completion_date: Optional[str] = None,
+) -> dict[str, Any]:
+    """Creates a CAPA (Corrective/Preventive Action) item under a debrief.
+    due_date and completion_date are ISO date strings.
+    """
+    try:
+        parsed_due = datetime.date.fromisoformat(due_date)
+        parsed_completion = datetime.date.fromisoformat(completion_date) if completion_date else None
+        with db.get_connection() as conn:
+            return exercise_debrief.create_capa_action_item(
+                conn, user_id, debrief_id, gap_description, corrective_action_required,
+                assigned_owner, parsed_due, status, parsed_completion,
+            )
+    except exercise_debrief.BCMPlannerError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def get_capa_action_item(action_id: str) -> dict[str, Any]:
+    """Reads a single CAPA action item by ID."""
+    try:
+        with db.get_connection() as conn:
+            return exercise_debrief.get_capa_action_item(conn, action_id)
+    except exercise_debrief.BCMPlannerError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def list_capa_action_items_by_debrief(debrief_id: str) -> list[dict[str, Any]]:
+    """Lists all CAPA action items for a debrief, ordered by due_date."""
+    with db.get_connection() as conn:
+        return exercise_debrief.list_capa_action_items_by_debrief(conn, debrief_id)
+
+
+@mcp.tool()
+def update_capa_action_item(user_id: str, action_id: str, fields: dict[str, Any]) -> dict[str, Any]:
+    """Updates mutable fields on an existing CAPA action item.
+
+    `fields` may include: gap_description, corrective_action_required,
+    assigned_owner, due_date (ISO string), status, completion_date (ISO string).
+    """
+    try:
+        parsed = dict(fields)
+        if "due_date" in parsed and isinstance(parsed["due_date"], str):
+            parsed["due_date"] = datetime.date.fromisoformat(parsed["due_date"])
+        if "completion_date" in parsed and isinstance(parsed["completion_date"], str):
+            parsed["completion_date"] = datetime.date.fromisoformat(parsed["completion_date"])
+        with db.get_connection() as conn:
+            return exercise_debrief.update_capa_action_item(conn, user_id, action_id, **parsed)
+    except exercise_debrief.BCMPlannerError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def get_overdue_capa_items(organization_id: str) -> list[dict[str, Any]]:
+    """Returns all CAPA action items for an organization that are past
+    their due_date and not yet completed (status not Completed/Verified) —
+    surfaces follow-through gaps across every exercise/debrief.
+    """
+    with db.get_connection() as conn:
+        return exercise_debrief.get_overdue_capa_items(conn, organization_id)
+
+
+@mcp.tool()
+def get_open_capa_items(organization_id: str) -> list[dict[str, Any]]:
+    """Returns all CAPA action items for an organization not yet completed
+    (status not Completed/Verified), regardless of due_date — the full
+    open/in-progress backlog. See get_overdue_capa_items for the stricter
+    past-due subset.
+    """
+    with db.get_connection() as conn:
+        return exercise_debrief.get_open_capa_items(conn, organization_id)
 
 
 def main() -> None:

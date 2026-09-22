@@ -95,6 +95,43 @@
       </table>
       <p id="escalation-empty" class="empty-state" style="display:none;">No escalation triggers registered yet.</p>
     </section>
+
+    <section>
+      <h2>Exercises &amp; Tests (Phase 4)</h2>
+      <p class="section-note">Upcoming/scheduled exercises with a summary inject count and debrief status only. See docs/exercise_scenario_templates.md — full scenario inject content and debrief narrative text are intentionally NOT shown here (kept to summary counts to avoid a cluttered dashboard view).</p>
+      <table id="exercises-table">
+        <thead>
+          <tr>
+            <th>Title</th>
+            <th>Category</th>
+            <th>Planned Date</th>
+            <th>Status</th>
+            <th>Injects</th>
+            <th>Debrief</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <p id="exercises-empty" class="empty-state" style="display:none;">No exercises registered yet.</p>
+    </section>
+
+    <section>
+      <h2>Open / Overdue CAPA Action Items (Phase 4)</h2>
+      <p class="section-note">Corrective/Preventive Action items past their due date and not yet completed — the full BIA → exercise → follow-through lifecycle in one view.</p>
+      <table id="capa-table">
+        <thead>
+          <tr>
+            <th>Exercise</th>
+            <th>Gap Description</th>
+            <th>Assigned Owner</th>
+            <th>Due Date</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <p id="capa-empty" class="empty-state" style="display:none;">No overdue CAPA action items — either none are overdue or none have been recorded yet.</p>
+    </section>
   </main>
 
   <script src="app.js"></script>

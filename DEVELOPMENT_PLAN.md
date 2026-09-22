@@ -69,7 +69,7 @@ To keep documentation on-order as the build progresses (not just at kickoff):
 | 1 | BIA Engine | **Complete** (2026-09-22). FastMCP tools for scope/hierarchy CRUD, impact matrix config, MTPD/RTO/RPO/MBCO capture (RTO<MTPD enforced), gap analysis + SPOF detection, recovery strategy selection ("only one selected" in app logic), RBAC write-gating, and append-only audit logging. 14/14 pytest tests passing against a live Postgres instance. Standalone HTML dashboard (`dashboard/`) with static JSON export (`scripts/export_dashboard_data.py`) verified end-to-end. See `CHANGELOG.md` (2026-09-22 entry) for full detail. |
 | 2 | Plan Generators | **Complete** (2026-09-22). BCP template builder + workflow generator (`bc_plans`/`bcp_action_steps` CRUD, rule-based auto-generation from a BIA + selected recovery strategy) and Return-to-BAU module (`bau_return_procedures` CRUD, standard 4-phase auto-generation). RBAC + audit logging reused unchanged from Phase 1. 21 new tests, 35/35 passing total. Dashboard extended with a BCP summary table. See `CHANGELOG.md` (2026-09-22 Phase 2 entry) and `docs/bcp_generation_rules.md` for full detail. |
 | 3 | Crisis Management | **Complete** (2026-09-22). CMT role definitions + escalation trigger CRUD (`cmt_roles`, `escalation_triggers`) with a documented, simple severity-based escalation-path heuristic (`get_escalation_path_for_severity`), plus stakeholder contact matrix + message bank CRUD and a rule-based (draft-only, never auto-approved) holding statement generator (`generate_holding_statement_draft`). RBAC + audit logging reused unchanged from Phase 1/2. 22 new tests, 57/57 passing total. Dashboard extended with a CMT roster + escalation summary view (message bank/stakeholder contacts deliberately excluded from the dashboard — contains contact details/draft text not meant for a general demo view). See `CHANGELOG.md` (2026-09-22 Phase 3 entry) and `docs/crisis_communication_templates.md` for full detail. |
-| 4 | Exercise & Test Planner | Not started |
+| 4 | Exercise & Test Planner | **Complete** (2026-09-22). Modular exercise/test planner (`exercise_programmes`/`exercises` CRUD) with a rule-based `get_disruption_scenario_template` helper (power_outage/cyberattack_ddos/data_breach/public_transit_disruption/key_supplier_failure); scenario inject & timeline storyboarding (`scenario_injects` CRUD, `get_exercise_storyboard` with sequence/time-order validation, `generate_injects_from_scenario_template`); debrief + CAPA tracking (`exercise_debriefs` CRUD with one-per-exercise enforcement, `capa_action_items` CRUD, `get_overdue_capa_items`/`get_open_capa_items`). RBAC + audit logging reused unchanged from Phase 1/2/3. 34 new tests, 91/91 passing total. Dashboard extended with an Exercises table and an Open/Overdue CAPA table. See `CHANGELOG.md` (2026-09-22 Phase 4 entry) and `docs/exercise_scenario_templates.md` for full detail. |
 | 5 | Governance & Lifecycle | Not started |
 
 ## Phased Build Plan
@@ -183,6 +183,70 @@ To keep documentation on-order as the build progresses (not just at kickoff):
 - Scenario injects and time-phased storyboarding for exercise facilitation.
 - Hot-debrief logging, gap capture, CAPA (Corrective/Preventive Action) tracker with owners and deadlines.
 - Covers FR11–FR13. Highest "wow factor" for demos but lowest technical priority — only build once Phases 1–3 are solid.
+
+**Delivered (2026-09-22):** `src/bcm_planner/exercise_planner.py` +
+`src/bcm_planner/scenario_injects.py` + `src/bcm_planner/exercise_debrief.py`
+implement:
+- `exercise_programmes` CRUD (create/get/update/list-by-organization) and
+  `exercises` CRUD (create/get/update/list-by-programme), against the
+  tables already defined in `schema/001_core_schema.sql` — no new
+  migration needed. `create_exercise` validates `programme_id` exists
+  first so callers get a `NotFoundError` rather than a raw FK violation.
+- `get_disruption_scenario_template(scenario_type)`: a rule-based, pure
+  (no DB write) helper returning a suggested scenario_description,
+  suggested `exercise_category_enum` value, and suggested objectives for
+  `power_outage`, `cyberattack_ddos`, `data_breach`,
+  `public_transit_disruption` (scenario_type keys deliberately aligned
+  with Phase 3's `crisis_communications.HOLDING_STATEMENT_TEMPLATES`) and
+  `key_supplier_failure` (a Phase-4-only addition per FR11).
+  **Deliberately raises a clear error for an unrecognized scenario_type**
+  instead of falling back to a generic template (unlike Phase 3's holding
+  statement generator) — a facilitator should author a bespoke scenario
+  rather than receive templated content that doesn't match their intended
+  disruption. Full template set documented in
+  `docs/exercise_scenario_templates.md`.
+- `scenario_injects` CRUD (create/get/update/list-by-exercise) and
+  `get_exercise_storyboard(exercise_id)`: returns the time-ordered inject
+  list, but first validates `sequence_number` values are unique and
+  strictly increase in step with `time_offset_minutes` order, raising
+  `StoryboardValidationError` (not silently returning a broken timeline)
+  otherwise.
+- `generate_injects_from_scenario_template(exercise_id, scenario_type)`:
+  rule-based/templated (not AI-generated prose) auto-generation of a
+  starter 4-5 inject set per scenario_type (matching the same keys as
+  `get_disruption_scenario_template`), each already time-ordered by
+  construction so the resulting storyboard passes validation.
+- `exercise_debriefs` CRUD (create/get/update, `get_exercise_debrief_by_exercise`),
+  enforcing "one debrief per exercise_id" via a fast Python pre-check plus
+  the existing DB `UNIQUE(exercise_id)` constraint as backstop (translated
+  into a clear `DuplicateDebriefError`, not a raw `psycopg` traceback) —
+  same pattern as Phase 1's RTO<MTPD enforcement / Phase 2's
+  `step_number > 0` enforcement.
+- `capa_action_items` CRUD (create/get/update/list-by-debrief), and
+  `get_overdue_capa_items(organization_id)` / `get_open_capa_items(organization_id)`:
+  join `capa_action_items -> exercise_debriefs -> exercises ->
+  exercise_programmes` to scope by `organization_id` (capa_action_items
+  has no direct org column), surfacing items past `due_date` and not yet
+  `Completed`/`Verified` — the CAPA follow-through demo feature called out
+  in the Phase 4 brief.
+- RBAC (`bia_engine.require_role`/`WRITE_ROLES`) and audit logging
+  (`bia_engine.log_audit`) reused unchanged — no second pattern
+  introduced.
+- 38 new FastMCP tools registered in `mcp_server.py` (129 total: 14 Phase
+  1 + 21 Phase 2 + 18 Phase 3 + 38 Phase 4 — recount: see
+  `mcp_server.py` for the authoritative list; tool count grows each
+  phase as CRUD + helper functions accumulate).
+- Dashboard (`scripts/export_dashboard_data.py`, `dashboard/`) extended
+  with an "Exercises & Tests" table (title, category, planned_date,
+  status, inject count, debrief status/rating) and an "Open / Overdue
+  CAPA Action Items" table (exercise, gap_description, assigned_owner,
+  due_date, status). Full scenario inject content and debrief narrative
+  text are **deliberately excluded** from the dashboard — kept to summary
+  counts, per the Phase 4 brief, to avoid a cluttered demo view (same
+  "summary, not full content" principle as Phase 3's CMT/escalation
+  dashboard sections).
+- 34 new tests in `tests/test_exercise_planner.py`, 91/91 passing total
+  (57 pre-existing + 34 new).
 
 ### Phase 5 — Governance & Lifecycle
 - Multi-tier sign-off workflow (process owner → top management) for BIA findings, strategies, and published plans.

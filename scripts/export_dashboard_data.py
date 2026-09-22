@@ -19,7 +19,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from bcm_planner import bcp_generator, bia_engine, db  # noqa: E402
+from bcm_planner import bcp_generator, bia_engine, db, exercise_debrief  # noqa: E402
 
 
 def _json_default(value: Any) -> Any:
@@ -90,6 +90,26 @@ def export_data(conn) -> dict[str, Any]:
         )
         escalation_triggers = cur.fetchall()
 
+        # Phase 4: upcoming/scheduled exercises + a per-exercise inject/debrief
+        # summary count (NOT full inject content or debrief narrative text —
+        # deliberately kept to counts only, per the Phase 4 brief, to avoid a
+        # cluttered dashboard view; see CHANGELOG.md Phase 4 entry).
+        cur.execute(
+            """
+            SELECT e.*, ep.organization_id, ep.title AS programme_title
+            FROM exercises e
+            JOIN exercise_programmes ep ON ep.programme_id = e.programme_id
+            ORDER BY e.planned_date
+            """
+        )
+        exercises = cur.fetchall()
+
+        cur.execute("SELECT exercise_id, COUNT(*) AS inject_count FROM scenario_injects GROUP BY exercise_id")
+        inject_counts_rows = cur.fetchall()
+
+        cur.execute("SELECT exercise_id, debrief_id, overall_rating FROM exercise_debriefs")
+        debrief_rows = cur.fetchall()
+
     # Build activity trees per process for the dashboard's hierarchy view.
     process_trees = []
     for process in business_processes:
@@ -151,6 +171,47 @@ def export_data(conn) -> dict[str, Any]:
         key = str(role["organization_id"])
         cmt_roles_by_org.setdefault(key, []).append(role)
 
+    # Phase 4: build a per-exercise summary (inject count, debrief presence +
+    # rating if recorded) for the dashboard's exercise view. Full inject
+    # content and debrief narrative text are intentionally excluded — see
+    # the Phase 4 brief and CHANGELOG.md entry.
+    inject_counts: dict[str, int] = {
+        str(row["exercise_id"]): row["inject_count"] for row in inject_counts_rows
+    }
+    debrief_by_exercise: dict[str, dict[str, Any]] = {
+        str(row["exercise_id"]): {"debrief_id": str(row["debrief_id"]), "overall_rating": row["overall_rating"]}
+        for row in debrief_rows
+    }
+
+    exercises_summary = []
+    for ex in exercises:
+        ex_id = str(ex["exercise_id"])
+        exercises_summary.append({
+            "exercise": ex,
+            "inject_count": inject_counts.get(ex_id, 0),
+            "debrief": debrief_by_exercise.get(ex_id),
+        })
+
+    # Phase 4: organization-scoped overdue CAPA action item list (gap
+    # description, assigned owner, due_date, status) — good demo material
+    # showing the full BIA -> exercise -> follow-through lifecycle. Grouped
+    # by organization_id since capa_action_items has no direct org column.
+    overdue_capa_by_org: dict[str, list[dict[str, Any]]] = {}
+    for organization in organizations:
+        org_id = str(organization["organization_id"])
+        overdue_items = exercise_debrief.get_overdue_capa_items(conn, org_id)
+        if overdue_items:
+            overdue_capa_by_org[org_id] = [
+                {
+                    "gap_description": item["gap_description"],
+                    "assigned_owner": item["assigned_owner"],
+                    "due_date": item["due_date"],
+                    "status": item["status"],
+                    "exercise_title": item["exercise_title"],
+                }
+                for item in overdue_items
+            ]
+
     return {
         "generated_at": __import__("datetime").datetime.utcnow().isoformat() + "Z",
         "organizations": organizations,
@@ -172,6 +233,8 @@ def export_data(conn) -> dict[str, Any]:
         "cmt_roles_by_organization": cmt_roles_by_org,
         "escalation_triggers": escalation_triggers,
         "escalation_summary_by_organization": escalation_summary_by_org,
+        "exercises_summary": exercises_summary,
+        "overdue_capa_by_organization": overdue_capa_by_org,
     }
 
 
@@ -189,10 +252,12 @@ def main() -> None:
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(data, indent=2, default=_json_default), encoding="utf-8")
+    overdue_capa_count = sum(len(v) for v in data["overdue_capa_by_organization"].values())
     print(f"Wrote dashboard data to {output_path} "
           f"({len(data['bia_assessments'])} BIA assessments, {len(data['activities'])} activities, "
           f"{len(data['bc_plans'])} BC plans, {len(data['cmt_roles'])} CMT roles, "
-          f"{len(data['escalation_triggers'])} escalation triggers).")
+          f"{len(data['escalation_triggers'])} escalation triggers, "
+          f"{len(data['exercises_summary'])} exercises, {overdue_capa_count} overdue CAPA items).")
 
 
 if __name__ == "__main__":

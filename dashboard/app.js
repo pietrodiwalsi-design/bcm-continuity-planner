@@ -249,6 +249,76 @@ function renderEscalationTable(data) {
   }
 }
 
+function renderExercisesTable(data) {
+  const tbody = document.querySelector("#exercises-table tbody");
+  tbody.innerHTML = "";
+  const summaries = data.exercises_summary || [];
+  if (!summaries.length) {
+    document.getElementById("exercises-empty").style.display = "block";
+    return;
+  }
+  document.getElementById("exercises-empty").style.display = "none";
+
+  const statusPillClass = {
+    Scheduled: "pill-muted", "In Progress": "pill-red", Completed: "pill-green", Cancelled: "pill-muted",
+  };
+
+  for (const { exercise, inject_count, debrief } of summaries) {
+    const tr = el("tr");
+    tr.appendChild(el("td", { text: exercise.title }));
+    tr.appendChild(el("td", { text: exercise.category }));
+    tr.appendChild(el("td", { text: exercise.planned_date }));
+
+    const statusCell = el("td");
+    statusCell.appendChild(el("span", {
+      class: `pill ${statusPillClass[exercise.status] || "pill-muted"}`,
+      text: exercise.status,
+    }));
+    tr.appendChild(statusCell);
+
+    tr.appendChild(el("td", { text: String(inject_count) }));
+
+    const debriefCell = el("td");
+    if (debrief) {
+      debriefCell.appendChild(el("span", {
+        class: "pill pill-green",
+        text: debrief.overall_rating ? `Debriefed — ${debrief.overall_rating}` : "Debriefed",
+      }));
+    } else {
+      debriefCell.appendChild(el("span", { class: "pill pill-muted", text: "No debrief yet" }));
+    }
+    tr.appendChild(debriefCell);
+
+    tbody.appendChild(tr);
+  }
+}
+
+function renderCapaTable(data) {
+  const tbody = document.querySelector("#capa-table tbody");
+  tbody.innerHTML = "";
+  const byOrg = data.overdue_capa_by_organization || {};
+  const items = Object.values(byOrg).flat();
+  if (!items.length) {
+    document.getElementById("capa-empty").style.display = "block";
+    return;
+  }
+  document.getElementById("capa-empty").style.display = "none";
+
+  for (const item of items) {
+    const tr = el("tr");
+    tr.appendChild(el("td", { text: item.exercise_title }));
+    tr.appendChild(el("td", { text: item.gap_description }));
+    tr.appendChild(el("td", { text: item.assigned_owner }));
+    tr.appendChild(el("td", { text: item.due_date }));
+
+    const statusCell = el("td");
+    statusCell.appendChild(el("span", { class: "pill pill-red", text: `${item.status} (overdue)` }));
+    tr.appendChild(statusCell);
+
+    tbody.appendChild(tr);
+  }
+}
+
 function render(data) {
   renderHierarchy(data);
   renderBiaTable(data);
@@ -256,6 +326,8 @@ function render(data) {
   renderBcpTable(data);
   renderCmtTable(data);
   renderEscalationTable(data);
+  renderExercisesTable(data);
+  renderCapaTable(data);
 }
 
 loadData();
