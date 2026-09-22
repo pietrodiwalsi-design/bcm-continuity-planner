@@ -38,6 +38,40 @@ Consistent with Peter's existing IT Risk tool suite (`pqc-cbom-risk-auditor`, `a
 | Broadcast alert latency <60s | **Deferred** — no live notification infra planned for v1 |
 | Platform DR (ISCP/DRP, RTO<4h/RPO<1h) | **Deferred** — ironic but correct: a demo tool about BCM does not itself need enterprise DR |
 
+## Model Strategy
+
+Consistent with the model routing used across Peter's other IT risk repositories (`pqc-cbom-risk-auditor`, `ai-risk-auditor`, `vendor-soc-isae-auditor`, `stride-threat-modeler`):
+
+| Role | Model | Notes |
+|---|---|---|
+| Lead coding (schema, BIA engine, FastMCP server, plan generators) | `anthropic/claude-sonnet-5` | Primary build model for all non-trivial implementation work, run via `sessions_spawn` sub-agents per phase. |
+| Coding fallback | `anthropic/claude-fable-5` | Used if sonnet-5 is unavailable/in cooldown, per SOUL.md fallback chain. |
+| Rapid testing & verification | `google/gemini-3.8-flash` | Fast turn-around for running/checking test suites, linting, and quick sanity passes between sonnet-5 build phases. |
+| Requirements/architecture review, documentation | Main session (this assistant) | Requirements review, schema review, documentation upkeep, and the plan itself are done in the main session, not delegated. |
+
+Each phase (see below) is built as a scoped sub-agent task with `anthropic/claude-sonnet-5`, with a clear brief (objective, output, write-scope, verification), and verified with `google/gemini-3.8-flash` before being marked complete in this plan.
+
+## Documentation Governance
+
+To keep documentation on-order as the build progresses (not just at kickoff):
+
+1. **Single source of truth per concern** — `REQUIREMENTS.md` (what/why + scope decisions), `DEVELOPMENT_PLAN.md` (this file — plan, models, phase status), `schema/SCHEMA_REVIEW.md` (data model decisions), and a `CHANGELOG.md` (chronological record of what shipped). No duplicate copies of the same fact across files — cross-reference instead of repeating.
+2. **Every phase completion updates three things in the same commit**: (a) tick off the relevant checklist item in "Next Steps" below, (b) mark the phase status in the "Phase Status" table below, (c) add a `CHANGELOG.md` entry. Code and docs land together, never as a follow-up "docs later" commit.
+3. **Every schema change** gets a new numbered migration file under `schema/` (never edit `001_core_schema.sql` or `002_...sql` in place) plus a short note appended to `schema/SCHEMA_REVIEW.md` explaining what changed and why — same pattern used for the RBAC/sign-off/review-scheduler additions.
+4. **README.md stays the entry point** — it links out to REQUIREMENTS, DEVELOPMENT_PLAN, schema docs, and (once it exists) an API/usage doc; README itself is kept short and not duplicated with detail that belongs in the linked files.
+5. **Review cadence**: after each phase, before starting the next, do a 5-minute doc-consistency pass (do REQUIREMENTS.md, DEVELOPMENT_PLAN.md, and the actual repo state agree?) — same discipline as the project's own FR15 (version control & maintenance scheduler), applied to the project's own documentation.
+
+## Phase Status
+
+| Phase | Scope | Status |
+|---|---|---|
+| 0 | Data model & scope | Schema drafted (Peter's proposal + RBAC/sign-off/review additions) — committed. Repo scaffold (package structure, FastMCP skeleton) not yet started. |
+| 1 | BIA Engine | Not started |
+| 2 | Plan Generators | Not started |
+| 3 | Crisis Management | Not started |
+| 4 | Exercise & Test Planner | Not started |
+| 5 | Governance & Lifecycle | Not started |
+
 ## Phased Build Plan
 
 ### Phase 0 — Data Model & Scope (Foundation)
