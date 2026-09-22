@@ -140,6 +140,12 @@ th {
   font-size: 13px;
 }
 
+.section-note {
+  color: var(--muted);
+  font-size: 12px;
+  margin: -8px 0 16px 0;
+}
+
 .spof-list {
   list-style: none;
   padding: 0;

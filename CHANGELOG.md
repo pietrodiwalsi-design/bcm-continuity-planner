@@ -4,6 +4,158 @@ All notable changes to this project are documented in this file. Dates are
 in `YYYY-MM-DD` format. This file is the chronological record referenced by
 the Documentation Governance rules in `DEVELOPMENT_PLAN.md`.
 
+## 2026-09-22 — Phase 3 (Crisis Management) complete
+
+**Phase 3 — Crisis Management (`src/bcm_planner/crisis_management.py` +
+`src/bcm_planner/crisis_communications.py`, FastMCP tools registered in
+`bcm_planner.mcp_server`), covering FR9–FR10:**
+
+- **Crisis Management Team (CMT) & Escalation Mapping (FR9,
+  `crisis_management.py`):**
+  - `cmt_roles` CRUD: `create_cmt_role`, `get_cmt_role`, `update_cmt_role`,
+    `list_cmt_roles_by_organization` — role definitions (Crisis Management
+    Team Leader, Legal Counsel, IT/Security Head, Spokesperson, etc.) with
+    primary/alternate assignee contact details and key responsibilities,
+    scoped to `organization_id`.
+  - `escalation_triggers` CRUD: `create_escalation_trigger`,
+    `get_escalation_trigger`, `update_escalation_trigger`,
+    `list_escalation_triggers_by_organization` — severity-based triggers
+    keyed on the existing `severity_level_enum` (minimal/minor/moderate/
+    major/severe/catastrophic), with `notification_timeframe_minutes` and
+    `required_action`.
+  - `get_escalation_path_for_severity(organization_id, severity_level)`: a
+    read-only helper returning the matching `escalation_triggers` row(s)
+    plus the CMT roles that should be notified for that severity, using a
+    simple, explicitly documented heuristic — major/severe/catastrophic
+    notify **all** CMT roles for the organization; minimal/minor/moderate
+    notify only roles whose `role_name`/`key_responsibilities` match a
+    first-response keyword set (word-boundary regex match, not naive
+    substring match — a naive match on short keywords like "it" would
+    false-positive inside unrelated words such as "author**it**y"). See
+    `HIGH_SEVERITY_ALL_ROLES_LEVELS` and `FIRST_RESPONSE_ROLE_KEYWORDS` in
+    `crisis_management.py` for the exact rule.
+
+- **Crisis Communication & Message Bank Builder (FR10,
+  `crisis_communications.py`):**
+  - `stakeholder_contact_matrices` CRUD: `create_stakeholder_contact`,
+    `get_stakeholder_contact`, `update_stakeholder_contact`,
+    `list_stakeholder_contacts_by_organization` — stakeholder group,
+    contact person/entity, primary/backup channel, notification priority.
+  - `message_bank` CRUD: `create_message_bank_entry`,
+    `get_message_bank_entry`, `update_message_bank_entry`,
+    `list_message_bank_entries_by_organization` — scenario type, target
+    audience, holding statement template, `pre_approved_by_legal` flag,
+    `dispatch_channels` array.
+  - `generate_holding_statement_draft(scenario_type, target_audience)`: a
+    rule-based, pure (no DB write) helper producing a DRAFT holding
+    statement template with fill-in placeholder tokens
+    (`{incident_summary}`, `{expected_resolution_time}`,
+    `{contact_channel}`) for `power_outage`, `cyberattack_ddos`,
+    `data_breach`, and `public_transit_disruption` scenario types (matched
+    case/space/hyphen-insensitively), with a generic fallback template for
+    any other `scenario_type`. Every template is prefixed
+    `[DRAFT — NOT LEGALLY APPROVED]`. Full template set documented in the
+    new `docs/crisis_communication_templates.md` (same pattern as
+    `docs/bcp_generation_rules.md` for Phase 2).
+  - **Safety-critical rule, enforced in code:**
+    `generate_holding_statement_draft` always returns
+    `pre_approved_by_legal=False` in its result, regardless of any
+    caller-supplied value for that parameter — an auto-generated draft
+    must never be represented as legally approved. Recording an actual
+    legal sign-off is a separate, explicit, audited write via
+    `update_message_bank_entry(..., pre_approved_by_legal=True)` on an
+    existing row, never a side effect of drafting.
+
+- **RBAC + audit logging:** both new modules reuse
+  `bia_engine.require_role` (same `WRITE_ROLES` allow-list) and
+  `bia_engine.log_audit` unchanged — no second RBAC or logging pattern was
+  introduced.
+
+- **No schema changes required.** `cmt_roles`, `escalation_triggers`,
+  `stakeholder_contact_matrices`, and `message_bank` were already defined
+  in `schema/001_core_schema.sql` (from the original schema proposal
+  reviewed in `schema/SCHEMA_REVIEW.md`) — Phase 3 required zero migration
+  work, only application-layer CRUD + the two rule-based helpers on top of
+  existing tables.
+
+**Tests (`tests/test_crisis_management.py`, 22 new tests, 57/57 passing
+total against a live Postgres instance via docker-compose):**
+- `cmt_roles` CRUD round-trip, including field-validation error paths.
+- `escalation_triggers` CRUD round-trip, plus an invalid-`severity_level`
+  DB-rejection case.
+- `get_escalation_path_for_severity`: a dedicated `cmt_roster` fixture with
+  a deliberately mixed roster (IT/Security Head, Operations Duty Manager,
+  Legal Counsel, Spokesperson) demonstrates the heuristic difference —
+  `minor` severity notifies only the first two roles; `catastrophic`
+  severity notifies all four. Also covers the "trigger exists but no CMT
+  roles match" and "no trigger row yet for this severity" cases.
+- `stakeholder_contact_matrices` CRUD round-trip.
+- `message_bank` CRUD round-trip, including recording an explicit
+  post-hoc legal approval via `update_message_bank_entry`.
+- `generate_holding_statement_draft`: placeholder-token presence for two
+  distinct scenario types (`power_outage`, `data_breach`), scenario-type
+  string normalization (`"Data Breach"` / `"data-breach"` /
+  `"data_breach"` all resolve identically), the generic fallback template
+  for an unrecognized scenario type, and — the safety-critical case — that
+  `pre_approved_by_legal` is forced `False` in the output even when the
+  caller explicitly passes `True`.
+- `test_rbac_*` — same allow/deny pattern as Phase 1/2, reusing
+  `bia_engine.require_role`.
+- `test_audit_log_written_for_*` — audit log rows written for `cmt_roles`,
+  `escalation_triggers`, `stakeholder_contact_matrices`, and `message_bank`.
+
+**Dashboard (`scripts/export_dashboard_data.py`, `dashboard/`):**
+- Extended with a **CMT Roster** table (role, primary contact
+  name/phone/email, alternate contact, key responsibilities) and an
+  **Escalation Summary** table (severity level with a color-coded pill —
+  red for major/severe/catastrophic — notification timeframe, incident
+  condition, required action), both grouped per-organization in the
+  exported JSON (`cmt_roles_by_organization`,
+  `escalation_summary_by_organization`) even though the current dashboard
+  UI renders the flat lists directly (multi-org UI grouping left as a
+  follow-up if Peter ever needs more than one demo organization visible at
+  once).
+- **Deliberately did NOT add `message_bank` or
+  `stakeholder_contact_matrices` content to the dashboard export or UI** —
+  those tables hold draft messaging text and named contact
+  persons/entities that are not appropriate for a general-purpose,
+  screenshot-friendly demo view. This was an explicit brief requirement,
+  not an oversight; if a redacted view is wanted later (e.g. stakeholder
+  group + channel only, no `contact_person_or_entity`), that is a Phase 3
+  follow-up, not done here.
+
+**Documentation governance:**
+- This `CHANGELOG.md` entry.
+- `DEVELOPMENT_PLAN.md` "Phase Status" table: Phase 3 marked **Complete**.
+- `README.md`: linked `docs/crisis_communication_templates.md`, no other
+  "Getting Started" changes needed (the existing MCP-tool-driven workflow
+  description already covers how Phase 3 tools are used).
+- `TESTING.md`: updated expected test count and added a Phase 3 section.
+- No changes to `schema/001_core_schema.sql` or
+  `schema/002_rbac_approvals_review_additions.sql` — confirmed no new
+  migration was needed (see `schema/SCHEMA_REVIEW.md`, no new note added
+  since nothing changed there).
+
+**Known limitations / deviations, disclosed honestly:**
+- The escalation-path heuristic (`FIRST_RESPONSE_ROLE_KEYWORDS`) is a
+  simple, documented keyword-based rule, not a configurable
+  notification-matrix engine — this was an explicit scope choice in the
+  Phase 3 brief ("doesn't need to be sophisticated, just sensible and
+  clearly documented").
+- No live SMS/email/push dispatch integration (NFR14 is explicitly
+  deferred per `REQUIREMENTS.md`'s scope decision) — `dispatch_channels`
+  on `message_bank` and `generate_holding_statement_draft`'s output are
+  data/text only, never sent anywhere.
+- No PDF/DOCX export of the Crisis Management Plan (CMP) as a single
+  document was built — out of scope for FR9/FR10 specifically; data is
+  accessible via the MCP CRUD tools and the (partial) dashboard view, same
+  pattern as Phase 1/2.
+- The dashboard's per-organization grouping (`cmt_roles_by_organization`,
+  `escalation_summary_by_organization`) is exported but the current
+  `app.js` renders a flat (non-grouped-by-org) table — acceptable for a
+  single-organization demo, called out here as a known simplification
+  rather than silently left unmentioned.
+
 ## 2026-09-22 — Phase 2 (Plan Generators) complete
 
 **Phase 2 — Plan Generators (`src/bcm_planner/bcp_generator.py`, FastMCP

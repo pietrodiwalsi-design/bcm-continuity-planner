@@ -193,11 +193,69 @@ function renderBcpTable(data) {
   }
 }
 
+function renderCmtTable(data) {
+  const tbody = document.querySelector("#cmt-table tbody");
+  tbody.innerHTML = "";
+  const roles = data.cmt_roles || [];
+  if (!roles.length) {
+    document.getElementById("cmt-empty").style.display = "block";
+    return;
+  }
+  document.getElementById("cmt-empty").style.display = "none";
+
+  for (const role of roles) {
+    const tr = el("tr");
+    tr.appendChild(el("td", { text: role.role_name }));
+    tr.appendChild(el("td", {
+      text: `${role.primary_assignee_name} (${role.primary_assignee_phone}, ${role.primary_assignee_email})`,
+    }));
+    tr.appendChild(el("td", {
+      text: role.alternate_assignee_name
+        ? `${role.alternate_assignee_name}${role.alternate_assignee_phone ? " (" + role.alternate_assignee_phone + ")" : ""}`
+        : "—",
+    }));
+    tr.appendChild(el("td", { text: role.key_responsibilities }));
+    tbody.appendChild(tr);
+  }
+}
+
+function renderEscalationTable(data) {
+  const tbody = document.querySelector("#escalation-table tbody");
+  tbody.innerHTML = "";
+  const triggers = data.escalation_triggers || [];
+  if (!triggers.length) {
+    document.getElementById("escalation-empty").style.display = "block";
+    return;
+  }
+  document.getElementById("escalation-empty").style.display = "none";
+
+  const severityPillClass = {
+    minimal: "pill-muted", minor: "pill-muted", moderate: "pill-muted",
+    major: "pill-red", severe: "pill-red", catastrophic: "pill-red",
+  };
+
+  for (const trigger of triggers) {
+    const tr = el("tr");
+    const severityCell = el("td");
+    severityCell.appendChild(el("span", {
+      class: `pill ${severityPillClass[trigger.severity_level] || "pill-muted"}`,
+      text: trigger.severity_level,
+    }));
+    tr.appendChild(severityCell);
+    tr.appendChild(el("td", { text: `T+${trigger.notification_timeframe_minutes} min` }));
+    tr.appendChild(el("td", { text: trigger.incident_condition }));
+    tr.appendChild(el("td", { text: trigger.required_action }));
+    tbody.appendChild(tr);
+  }
+}
+
 function render(data) {
   renderHierarchy(data);
   renderBiaTable(data);
   renderSpofList(data);
   renderBcpTable(data);
+  renderCmtTable(data);
+  renderEscalationTable(data);
 }
 
 loadData();

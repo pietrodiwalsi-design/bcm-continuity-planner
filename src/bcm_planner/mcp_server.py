@@ -18,19 +18,24 @@ from typing import Any, Optional
 
 from fastmcp import FastMCP
 
-from bcm_planner import bcp_generator, bia_engine, db
+from bcm_planner import bcp_generator, bia_engine, crisis_communications, crisis_management, db
 
 mcp = FastMCP(
     name="bcm-continuity-planner-mcp",
-    version="0.2.0",
+    version="0.3.0",
     instructions=(
-        "BIA Engine (Phase 1) + Plan Generators (Phase 2) for the BCM "
-        "Continuity Planner: scope/hierarchy CRUD, impact matrix configuration, "
-        "MTPD/RTO/RPO/MBCO capture with enforced RTO<MTPD, gap analysis with "
-        "single-point-of-failure detection, recovery strategy selection, BCP "
-        "template builder + workflow generator (bc_plans/bcp_action_steps, "
-        "including rule-based auto-generation from a BIA + recovery strategy), "
-        "and Return-to-BAU procedures. All write tools require a valid "
+        "BIA Engine (Phase 1) + Plan Generators (Phase 2) + Crisis Management "
+        "(Phase 3) for the BCM Continuity Planner: scope/hierarchy CRUD, impact "
+        "matrix configuration, MTPD/RTO/RPO/MBCO capture with enforced "
+        "RTO<MTPD, gap analysis with single-point-of-failure detection, "
+        "recovery strategy selection, BCP template builder + workflow "
+        "generator (bc_plans/bcp_action_steps, including rule-based "
+        "auto-generation from a BIA + recovery strategy), Return-to-BAU "
+        "procedures, Crisis Management Team (CMT) role + escalation trigger "
+        "CRUD with a severity-based escalation path helper, and Crisis "
+        "Communication stakeholder contact matrix + message bank CRUD with a "
+        "rule-based (draft-only, never legally pre-approved) holding "
+        "statement generator. All write tools require a valid "
         "application_users.user_id with a permitted role."
     ),
 )
@@ -533,6 +538,251 @@ def generate_bau_return_phases(user_id: str, plan_id: str) -> list[dict[str, Any
             return bcp_generator.generate_bau_return_phases(conn, user_id, plan_id)
     except bcp_generator.BCMPlannerError as exc:
         return _err(exc)
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 — Crisis Management Team (CMT) & Escalation Mapping (FR9)
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+def create_cmt_role(
+    user_id: str, organization_id: str, role_name: str,
+    primary_assignee_name: str, primary_assignee_phone: str, primary_assignee_email: str,
+    key_responsibilities: str, alternate_assignee_name: Optional[str] = None,
+    alternate_assignee_phone: Optional[str] = None,
+) -> dict[str, Any]:
+    """Creates a Crisis Management Team role definition (e.g. Crisis
+    Management Team Leader, Legal Counsel, IT/Security Head, Spokesperson).
+    """
+    try:
+        with db.get_connection() as conn:
+            return crisis_management.create_cmt_role(
+                conn, user_id, organization_id, role_name, primary_assignee_name,
+                primary_assignee_phone, primary_assignee_email, key_responsibilities,
+                alternate_assignee_name, alternate_assignee_phone,
+            )
+    except crisis_management.BCMPlannerError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def get_cmt_role(role_id: str) -> dict[str, Any]:
+    """Reads a single CMT role by ID."""
+    try:
+        with db.get_connection() as conn:
+            return crisis_management.get_cmt_role(conn, role_id)
+    except crisis_management.BCMPlannerError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def list_cmt_roles_by_organization(organization_id: str) -> list[dict[str, Any]]:
+    """Lists all CMT roles for an organization, ordered by role_name."""
+    with db.get_connection() as conn:
+        return crisis_management.list_cmt_roles_by_organization(conn, organization_id)
+
+
+@mcp.tool()
+def update_cmt_role(user_id: str, role_id: str, fields: dict[str, Any]) -> dict[str, Any]:
+    """Updates mutable fields on an existing CMT role.
+
+    `fields` may include: role_name, primary_assignee_name,
+    primary_assignee_phone, primary_assignee_email, alternate_assignee_name,
+    alternate_assignee_phone, key_responsibilities.
+    """
+    try:
+        with db.get_connection() as conn:
+            return crisis_management.update_cmt_role(conn, user_id, role_id, **fields)
+    except crisis_management.BCMPlannerError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def create_escalation_trigger(
+    user_id: str, organization_id: str, severity_level: str, incident_condition: str,
+    notification_timeframe_minutes: int, required_action: str,
+) -> dict[str, Any]:
+    """Creates a severity-based escalation trigger. severity_level must be
+    one of severity_level_enum's values (minimal/minor/moderate/major/
+    severe/catastrophic).
+    """
+    try:
+        with db.get_connection() as conn:
+            return crisis_management.create_escalation_trigger(
+                conn, user_id, organization_id, severity_level, incident_condition,
+                notification_timeframe_minutes, required_action,
+            )
+    except crisis_management.BCMPlannerError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def get_escalation_trigger(trigger_id: str) -> dict[str, Any]:
+    """Reads a single escalation trigger by ID."""
+    try:
+        with db.get_connection() as conn:
+            return crisis_management.get_escalation_trigger(conn, trigger_id)
+    except crisis_management.BCMPlannerError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def list_escalation_triggers_by_organization(organization_id: str) -> list[dict[str, Any]]:
+    """Lists all escalation triggers for an organization, ordered by severity_level."""
+    with db.get_connection() as conn:
+        return crisis_management.list_escalation_triggers_by_organization(conn, organization_id)
+
+
+@mcp.tool()
+def update_escalation_trigger(user_id: str, trigger_id: str, fields: dict[str, Any]) -> dict[str, Any]:
+    """Updates mutable fields on an existing escalation trigger.
+
+    `fields` may include: severity_level, incident_condition,
+    notification_timeframe_minutes, required_action.
+    """
+    try:
+        with db.get_connection() as conn:
+            return crisis_management.update_escalation_trigger(conn, user_id, trigger_id, **fields)
+    except crisis_management.BCMPlannerError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def get_escalation_path_for_severity(organization_id: str, severity_level: str) -> dict[str, Any]:
+    """Returns the escalation path for an organization + severity level:
+    the matching escalation_triggers row(s) plus the CMT roles that should
+    be notified for that severity.
+
+    Heuristic: major/severe/catastrophic notify ALL CMT roles for the
+    organization; minimal/minor/moderate notify only roles whose role_name
+    or key_responsibilities suggest operational/first-response involvement
+    (see crisis_management.py for the full documented heuristic).
+    """
+    with db.get_connection() as conn:
+        return crisis_management.get_escalation_path_for_severity(conn, organization_id, severity_level)
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 — Crisis Communication & Message Bank Builder (FR10)
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+def create_stakeholder_contact(
+    user_id: str, organization_id: str, stakeholder_group: str, contact_person_or_entity: str,
+    primary_channel: str, backup_channel: Optional[str] = None, notification_priority: int = 1,
+) -> dict[str, Any]:
+    """Creates a stakeholder contact matrix entry (e.g. Internal Personnel,
+    Executive Leadership, Media, Regulators, Key Vendors).
+    """
+    try:
+        with db.get_connection() as conn:
+            return crisis_communications.create_stakeholder_contact(
+                conn, user_id, organization_id, stakeholder_group, contact_person_or_entity,
+                primary_channel, backup_channel, notification_priority,
+            )
+    except crisis_communications.BCMPlannerError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def get_stakeholder_contact(contact_id: str) -> dict[str, Any]:
+    """Reads a single stakeholder contact matrix entry by ID."""
+    try:
+        with db.get_connection() as conn:
+            return crisis_communications.get_stakeholder_contact(conn, contact_id)
+    except crisis_communications.BCMPlannerError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def list_stakeholder_contacts_by_organization(organization_id: str) -> list[dict[str, Any]]:
+    """Lists all stakeholder contacts for an organization, ordered by notification_priority."""
+    with db.get_connection() as conn:
+        return crisis_communications.list_stakeholder_contacts_by_organization(conn, organization_id)
+
+
+@mcp.tool()
+def update_stakeholder_contact(user_id: str, contact_id: str, fields: dict[str, Any]) -> dict[str, Any]:
+    """Updates mutable fields on an existing stakeholder contact matrix entry.
+
+    `fields` may include: stakeholder_group, contact_person_or_entity,
+    primary_channel, backup_channel, notification_priority.
+    """
+    try:
+        with db.get_connection() as conn:
+            return crisis_communications.update_stakeholder_contact(conn, user_id, contact_id, **fields)
+    except crisis_communications.BCMPlannerError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def create_message_bank_entry(
+    user_id: str, organization_id: str, scenario_type: str, target_audience: str,
+    holding_statement_template: str, pre_approved_by_legal: bool = False,
+    dispatch_channels: Optional[list[str]] = None,
+) -> dict[str, Any]:
+    """Creates a message_bank entry. pre_approved_by_legal defaults to False
+    and should only be set True after an actual human legal review.
+    """
+    try:
+        with db.get_connection() as conn:
+            return crisis_communications.create_message_bank_entry(
+                conn, user_id, organization_id, scenario_type, target_audience,
+                holding_statement_template, pre_approved_by_legal, dispatch_channels,
+            )
+    except crisis_communications.BCMPlannerError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def get_message_bank_entry(message_id: str) -> dict[str, Any]:
+    """Reads a single message_bank entry by ID."""
+    try:
+        with db.get_connection() as conn:
+            return crisis_communications.get_message_bank_entry(conn, message_id)
+    except crisis_communications.BCMPlannerError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def list_message_bank_entries_by_organization(organization_id: str) -> list[dict[str, Any]]:
+    """Lists all message_bank entries for an organization."""
+    with db.get_connection() as conn:
+        return crisis_communications.list_message_bank_entries_by_organization(conn, organization_id)
+
+
+@mcp.tool()
+def update_message_bank_entry(user_id: str, message_id: str, fields: dict[str, Any]) -> dict[str, Any]:
+    """Updates mutable fields on an existing message_bank entry.
+
+    `fields` may include: scenario_type, target_audience,
+    holding_statement_template, pre_approved_by_legal, dispatch_channels.
+    Use this (with pre_approved_by_legal=True) to record an actual human
+    legal sign-off on a draft — never implied automatically by generation.
+    """
+    try:
+        with db.get_connection() as conn:
+            return crisis_communications.update_message_bank_entry(conn, user_id, message_id, **fields)
+    except crisis_communications.BCMPlannerError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def generate_holding_statement_draft(scenario_type: str, target_audience: str) -> dict[str, Any]:
+    """Generates a rule-based DRAFT holding statement template for a
+    scenario_type (power_outage, cyberattack_ddos, data_breach,
+    public_transit_disruption, or a generic fallback for any other value)
+    and target_audience. Contains fill-in placeholder tokens
+    ({incident_summary}, {expected_resolution_time}, {contact_channel}).
+
+    pre_approved_by_legal is ALWAYS False in the result, regardless of any
+    input — see docs/crisis_communication_templates.md section 5. Does not
+    write to the database; pass the result to create_message_bank_entry to
+    persist it.
+    """
+    return crisis_communications.generate_holding_statement_draft(scenario_type, target_audience)
 
 
 def main() -> None:

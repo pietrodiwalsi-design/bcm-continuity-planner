@@ -68,7 +68,7 @@ To keep documentation on-order as the build progresses (not just at kickoff):
 | 0 | Data model & scope | **Complete** (2026-09-22). Schema (Peter's proposal + RBAC/sign-off/review additions) committed. Repo scaffold complete: `docker-compose.yml` (PostgreSQL 16-alpine, auto-applies 001+002 via docker-entrypoint-initdb.d), `src/bcm_planner/` package (`db.py`, `bia_engine.py`, `mcp_server.py`), `pyproject.toml`/`requirements.txt`, `.gitignore`. |
 | 1 | BIA Engine | **Complete** (2026-09-22). FastMCP tools for scope/hierarchy CRUD, impact matrix config, MTPD/RTO/RPO/MBCO capture (RTO<MTPD enforced), gap analysis + SPOF detection, recovery strategy selection ("only one selected" in app logic), RBAC write-gating, and append-only audit logging. 14/14 pytest tests passing against a live Postgres instance. Standalone HTML dashboard (`dashboard/`) with static JSON export (`scripts/export_dashboard_data.py`) verified end-to-end. See `CHANGELOG.md` (2026-09-22 entry) for full detail. |
 | 2 | Plan Generators | **Complete** (2026-09-22). BCP template builder + workflow generator (`bc_plans`/`bcp_action_steps` CRUD, rule-based auto-generation from a BIA + selected recovery strategy) and Return-to-BAU module (`bau_return_procedures` CRUD, standard 4-phase auto-generation). RBAC + audit logging reused unchanged from Phase 1. 21 new tests, 35/35 passing total. Dashboard extended with a BCP summary table. See `CHANGELOG.md` (2026-09-22 Phase 2 entry) and `docs/bcp_generation_rules.md` for full detail. |
-| 3 | Crisis Management | Not started |
+| 3 | Crisis Management | **Complete** (2026-09-22). CMT role definitions + escalation trigger CRUD (`cmt_roles`, `escalation_triggers`) with a documented, simple severity-based escalation-path heuristic (`get_escalation_path_for_severity`), plus stakeholder contact matrix + message bank CRUD and a rule-based (draft-only, never auto-approved) holding statement generator (`generate_holding_statement_draft`). RBAC + audit logging reused unchanged from Phase 1/2. 22 new tests, 57/57 passing total. Dashboard extended with a CMT roster + escalation summary view (message bank/stakeholder contacts deliberately excluded from the dashboard — contains contact details/draft text not meant for a general demo view). See `CHANGELOG.md` (2026-09-22 Phase 3 entry) and `docs/crisis_communication_templates.md` for full detail. |
 | 4 | Exercise & Test Planner | Not started |
 | 5 | Governance & Lifecycle | Not started |
 
@@ -133,6 +133,51 @@ To keep documentation on-order as the build progresses (not just at kickoff):
 - Crisis Communication Plan generator: stakeholder contact matrix, pre-approved holding statements/message bank, multi-channel dispatch rules (social, press, internal).
 - Covers FR9–FR10. Self-contained enough to build as its own module once Phase 1 data exists.
 
+**Delivered (2026-09-22):** `src/bcm_planner/crisis_management.py` +
+`src/bcm_planner/crisis_communications.py` implement:
+- `cmt_roles` CRUD (create/get/update/list-by-organization) and
+  `escalation_triggers` CRUD (create/get/update/list-by-organization),
+  scoped to `organization_id`, against the tables already defined in
+  `schema/001_core_schema.sql` — no new migration needed.
+- `get_escalation_path_for_severity(organization_id, severity_level)`: a
+  read-only helper returning matching `escalation_triggers` row(s) plus
+  the CMT roles to notify, using a simple, explicitly documented
+  heuristic — `major`/`severe`/`catastrophic` notify **all** CMT roles;
+  `minimal`/`minor`/`moderate` notify only roles whose `role_name`/
+  `key_responsibilities` match a first-response keyword set (word-boundary
+  regex, not naive substring match). See `HIGH_SEVERITY_ALL_ROLES_LEVELS`
+  / `FIRST_RESPONSE_ROLE_KEYWORDS` in `crisis_management.py`.
+- `stakeholder_contact_matrices` CRUD and `message_bank` CRUD, scoped to
+  `organization_id`.
+- `generate_holding_statement_draft(scenario_type, target_audience)`: a
+  pure, rule-based helper producing a DRAFT holding statement template
+  with `{incident_summary}`/`{expected_resolution_time}`/
+  `{contact_channel}` placeholder tokens for `power_outage`,
+  `cyberattack_ddos`, `data_breach`, `public_transit_disruption` (plus a
+  generic fallback for other scenario types). **Always forces
+  `pre_approved_by_legal=False` in its result, in code, regardless of
+  caller input** — the safety-relevant rule from the Phase 3 brief. Full
+  template set documented in `docs/crisis_communication_templates.md`.
+- RBAC (`bia_engine.require_role`/`WRITE_ROLES`) and audit logging
+  (`bia_engine.log_audit`) reused unchanged — no second pattern
+  introduced.
+- 18 new FastMCP tools registered in `mcp_server.py` (53 total: 14 Phase 1
+  + 21 Phase 2 + 18 Phase 3).
+- Dashboard (`scripts/export_dashboard_data.py`, `dashboard/`) extended
+  with a "Crisis Management Team (CMT) Roster" table (role, primary
+  contact) and an "Escalation Summary" table (severity level,
+  notification timeframe, incident condition, required action).
+  `message_bank` and `stakeholder_contact_matrices` were **deliberately
+  excluded** from the dashboard — they contain draft messaging text and
+  named contact persons/entities not appropriate for a general-purpose
+  demo view.
+- **Deferred to a Phase 3 follow-up:** no redacted stakeholder-contact
+  dashboard view (e.g. group + channel only, no named contact); no
+  PDF/DOCX export of a combined Crisis Management Plan (CMP) document; no
+  per-organization grouping in the dashboard UI itself (the exported JSON
+  is grouped by organization, but `app.js` currently renders a flat table
+  — acceptable for the current single-organization demo).
+
 ### Phase 4 — Exercise & Test Planner
 - Exercise templates across discussion-based, tabletop, simulation, live, and functional test categories, with pre-built disruption scenarios (power outage, cyberattack, transit disruption).
 - Scenario injects and time-phased storyboarding for exercise facilitation.
@@ -160,5 +205,5 @@ To keep documentation on-order as the build progresses (not just at kickoff):
 - [x] Build standalone HTML dashboard for BIA entry + gap analysis visualization (demo-facing). *(Read-only demo view via static JSON export, not a data-entry UI — data entry happens via the MCP tools per the Phase 1 brief.)*
 - [x] Write test suite for MTPD/RTO/RPO business rule enforcement. *(14 tests in `tests/test_bia_engine.py`, covering RTO<MTPD, hierarchy CRUD, gap analysis, SPOF detection, recovery strategy selection, RBAC, and audit logging — see `TESTING.md`.)*
 - [x] Once Phase 1 is solid: Phase 2 plan generators. *(BCP template builder + workflow generator and Return-to-BAU module, both rule-based auto-generation from Phase 1 BIA data; see Phase 2 section above and `CHANGELOG.md`.)*
-- [ ] Phase 3 crisis management module (CMT roles, escalation, crisis comms/message bank).
+- [x] Phase 3 crisis management module (CMT roles, escalation, crisis comms/message bank). *(CMT role + escalation trigger CRUD, `get_escalation_path_for_severity` heuristic, stakeholder contact matrix + message bank CRUD, and `generate_holding_statement_draft`; see Phase 3 section above and `CHANGELOG.md`.)*
 - [ ] Revisit Phase 4/5 after Peter has used the tool on at least one real (personal/demo) BIA case end-to-end.

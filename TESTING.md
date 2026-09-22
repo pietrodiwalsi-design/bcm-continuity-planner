@@ -34,7 +34,7 @@ set -a; . ./.env; set +a
 pytest tests/ -v
 ```
 
-Expected result at the time of writing: **35 passed** (14 Phase 1 `test_bia_engine.py` + 21 Phase 2 `test_bcp_generator.py`).
+Expected result at the time of writing: **57 passed** (14 Phase 1 `test_bia_engine.py` + 21 Phase 2 `test_bcp_generator.py` + 22 Phase 3 `test_crisis_management.py`).
 
 ## What the suite covers
 
@@ -89,6 +89,43 @@ Expected result at the time of writing: **35 passed** (14 Phase 1 `test_bia_engi
 
 See `docs/bcp_generation_rules.md` for the exact rule-based mapping these
 tests verify.
+
+### Phase 3 — `tests/test_crisis_management.py` (22 tests)
+
+- `test_cmt_role_crud_roundtrip` — full CRUD round-trip for `cmt_roles`,
+  including the "no fields"/"unknown field" and not-found error paths.
+- `test_escalation_trigger_crud_roundtrip` — full CRUD round-trip for
+  `escalation_triggers`; `test_escalation_trigger_invalid_severity_level_raises`
+  confirms an invalid `severity_level` value is rejected by the DB's
+  `severity_level_enum`.
+- `test_get_escalation_path_for_severity_low_severity_only_first_response_roles`
+  / `test_get_escalation_path_for_severity_high_severity_notifies_all_roles`
+  — a dedicated `cmt_roster` fixture (IT/Security Head, Operations Duty
+  Manager, Legal Counsel, Spokesperson) demonstrates the documented
+  heuristic: `minor` severity notifies only the first two (first-response)
+  roles, `catastrophic` severity notifies all four. A third test confirms
+  a severity with no matching `escalation_triggers` row still returns a
+  computed (possibly empty) `notified_roles` list rather than erroring.
+- `test_stakeholder_contact_crud_roundtrip` — full CRUD round-trip for
+  `stakeholder_contact_matrices`.
+- `test_message_bank_crud_roundtrip` — full CRUD round-trip for
+  `message_bank`, including recording an explicit post-hoc legal approval
+  via `update_message_bank_entry(pre_approved_by_legal=True)`.
+- `test_generate_holding_statement_draft_*` — placeholder-token presence
+  for `power_outage` and `data_breach` scenario types, scenario-type
+  string normalization (`"Data Breach"`/`"data-breach"`/`"data_breach"`
+  all resolve to the same template), the generic fallback template for an
+  unrecognized scenario type, and — the safety-critical case —
+  confirmation that `pre_approved_by_legal` is forced `False` in the
+  result even when the caller explicitly passes `True`.
+- `test_rbac_*` — same allow/deny pattern as Phase 1/2, reusing
+  `bia_engine.require_role`.
+- `test_audit_log_written_for_*` — audit log rows written for `cmt_roles`,
+  `escalation_triggers`, `stakeholder_contact_matrices`, and
+  `message_bank`.
+
+See `docs/crisis_communication_templates.md` for the exact holding
+statement template set and escalation-path heuristic these tests verify.
 
 ## Test isolation
 

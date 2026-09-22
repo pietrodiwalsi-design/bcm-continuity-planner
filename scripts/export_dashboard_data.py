@@ -75,6 +75,21 @@ def export_data(conn) -> dict[str, Any]:
         cur.execute("SELECT * FROM bau_return_procedures ORDER BY plan_id, phase_number")
         bau_return_procedures = cur.fetchall()
 
+        # Phase 3: CMT roster + escalation trigger summary only. Deliberately
+        # NOT exporting message_bank or stakeholder_contact_matrices content
+        # here — those contain contact details / draft messaging text that is
+        # not meant for a general read-only demo view (see CHANGELOG.md Phase
+        # 3 entry for the rationale). cmt_roles' contact fields ARE included
+        # since the roster (role + primary contact) is explicitly requested
+        # dashboard content per the Phase 3 brief.
+        cur.execute("SELECT * FROM cmt_roles ORDER BY organization_id, role_name")
+        cmt_roles = cur.fetchall()
+
+        cur.execute(
+            "SELECT * FROM escalation_triggers ORDER BY organization_id, severity_level"
+        )
+        escalation_triggers = cur.fetchall()
+
     # Build activity trees per process for the dashboard's hierarchy view.
     process_trees = []
     for process in business_processes:
@@ -119,6 +134,23 @@ def export_data(conn) -> dict[str, Any]:
             "source_activity_name": source_activity_name,
         })
 
+    # Phase 3: build a per-organization escalation summary (severity levels
+    # and their notification timeframes) for the dashboard's escalation view.
+    escalation_summary_by_org: dict[str, list[dict[str, Any]]] = {}
+    for trigger in escalation_triggers:
+        key = str(trigger["organization_id"])
+        escalation_summary_by_org.setdefault(key, []).append({
+            "severity_level": trigger["severity_level"],
+            "notification_timeframe_minutes": trigger["notification_timeframe_minutes"],
+            "incident_condition": trigger["incident_condition"],
+            "required_action": trigger["required_action"],
+        })
+
+    cmt_roles_by_org: dict[str, list[dict[str, Any]]] = {}
+    for role in cmt_roles:
+        key = str(role["organization_id"])
+        cmt_roles_by_org.setdefault(key, []).append(role)
+
     return {
         "generated_at": __import__("datetime").datetime.utcnow().isoformat() + "Z",
         "organizations": organizations,
@@ -136,6 +168,10 @@ def export_data(conn) -> dict[str, Any]:
         "bcp_action_steps": bcp_action_steps,
         "bau_return_procedures": bau_return_procedures,
         "bc_plans_summary": bc_plans_summary,
+        "cmt_roles": cmt_roles,
+        "cmt_roles_by_organization": cmt_roles_by_org,
+        "escalation_triggers": escalation_triggers,
+        "escalation_summary_by_organization": escalation_summary_by_org,
     }
 
 
@@ -155,7 +191,8 @@ def main() -> None:
     output_path.write_text(json.dumps(data, indent=2, default=_json_default), encoding="utf-8")
     print(f"Wrote dashboard data to {output_path} "
           f"({len(data['bia_assessments'])} BIA assessments, {len(data['activities'])} activities, "
-          f"{len(data['bc_plans'])} BC plans).")
+          f"{len(data['bc_plans'])} BC plans, {len(data['cmt_roles'])} CMT roles, "
+          f"{len(data['escalation_triggers'])} escalation triggers).")
 
 
 if __name__ == "__main__":
