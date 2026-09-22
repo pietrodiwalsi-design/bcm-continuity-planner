@@ -15,14 +15,17 @@ A GitHub prior-art check (documented in REQUIREMENTS.md) found no open-source to
 ## Architecture (planned)
 
 - Python backend, FastMCP server (consistent with the author's other IT risk tooling: `pqc-cbom-risk-auditor`, `ai-risk-auditor`, `vendor-soc-isae-auditor`, `stride-threat-modeler`)
-- SQLite/JSON data store
+- PostgreSQL 14+ (local via Docker Compose) — see `schema/`
 - Standalone HTML dashboard
-- Append-only JSON audit log
+- Append-only JSON/DB audit log
 
 ## Documents
 
 - [REQUIREMENTS.md](./REQUIREMENTS.md) — Full functional & non-functional requirements, scope decision, prior art check.
 - [DEVELOPMENT_PLAN.md](./DEVELOPMENT_PLAN.md) — High-level phased development plan (Phase 0–5) and next steps.
+- [schema/001_core_schema.sql](./schema/001_core_schema.sql) — Core PostgreSQL schema (Peter's proposal).
+- [schema/002_rbac_approvals_review_additions.sql](./schema/002_rbac_approvals_review_additions.sql) — RBAC, sign-off workflow, review scheduler additions.
+- [schema/SCHEMA_REVIEW.md](./schema/SCHEMA_REVIEW.md) — Review of the schema proposal against requirements, gaps found and closed.
 
 ## License
 

@@ -13,7 +13,7 @@ See `REQUIREMENTS.md` → "Prior Art Check" section. No open-source project comb
 Consistent with Peter's existing IT Risk tool suite (`pqc-cbom-risk-auditor`, `ai-risk-auditor`, `vendor-soc-isae-auditor`, `stride-threat-modeler`):
 
 - **Backend:** Python, FastMCP server — same pattern as the other 4 tools, so it plugs directly into the Enterprise IT Risk MCP Suite / Claude Desktop.
-- **Data store:** SQLite/JSON for v1. No Postgres cluster — this is a single-user demo tool, not a 99.9%-SLA SaaS.
+- **Data store:** PostgreSQL 14+, run locally via Docker Compose (revised 2026-09-22, see `schema/SCHEMA_REVIEW.md`). Peter's supplied schema proposal relies on Postgres-native features (ENUM types, CHECK constraints enforcing business rules like RTO<MTPD, `GENERATED ALWAYS AS STORED` columns, JSONB, array columns) that would be lost on SQLite. Still a single-user local setup, no cloud infra or managed cluster — just the right engine for the schema.
 - **Frontend:** Standalone HTML dashboard (same pattern as the other repos), no separate frontend build stack.
 - **Audit trail:** Append-only JSON log (same evidence-integrity standard used across Peter's other risk tools — absence/ambiguity of evidence is never scored as compliant).
 - **Standards alignment baked into the data model from Phase 0:** ISO 22301:2019, ISO/TS 22317, NIST SP 800-34 Rev 1, BCI Good Practice Guidelines 7.0 terminology and structure.
