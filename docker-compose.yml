@@ -1,0 +1,32 @@
+# BCM Continuity Planner — local PostgreSQL 14+ data store.
+# Personal/portfolio-tool scope: single-user local Postgres, no cloud infra,
+# no replication/HA. See REQUIREMENTS.md "Scope Decision" and
+# schema/SCHEMA_REVIEW.md "Decision: PostgreSQL, not SQLite".
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: bcm-continuity-planner-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-bcm_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bcm_local_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-bcm_continuity_planner}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - bcm_pg_data:/var/lib/postgresql/data
+      # docker-entrypoint-initdb.d scripts run once, alphabetically, only
+      # against a freshly-created (empty) data directory. Mounting the
+      # numbered schema migration files here means `docker-compose up`
+      # on a fresh volume automatically applies 001 then 002 in order.
+      - ./schema/001_core_schema.sql:/docker-entrypoint-initdb.d/001_core_schema.sql:ro
+      - ./schema/002_rbac_approvals_review_additions.sql:/docker-entrypoint-initdb.d/002_rbac_approvals_review_additions.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-bcm_admin} -d ${POSTGRES_DB:-bcm_continuity_planner}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  bcm_pg_data:

@@ -65,8 +65,8 @@ To keep documentation on-order as the build progresses (not just at kickoff):
 
 | Phase | Scope | Status |
 |---|---|---|
-| 0 | Data model & scope | Schema drafted (Peter's proposal + RBAC/sign-off/review additions) — committed. Repo scaffold (package structure, FastMCP skeleton) not yet started. |
-| 1 | BIA Engine | Not started |
+| 0 | Data model & scope | **Complete** (2026-09-22). Schema (Peter's proposal + RBAC/sign-off/review additions) committed. Repo scaffold complete: `docker-compose.yml` (PostgreSQL 16-alpine, auto-applies 001+002 via docker-entrypoint-initdb.d), `src/bcm_planner/` package (`db.py`, `bia_engine.py`, `mcp_server.py`), `pyproject.toml`/`requirements.txt`, `.gitignore`. |
+| 1 | BIA Engine | **Complete** (2026-09-22). FastMCP tools for scope/hierarchy CRUD, impact matrix config, MTPD/RTO/RPO/MBCO capture (RTO<MTPD enforced), gap analysis + SPOF detection, recovery strategy selection ("only one selected" in app logic), RBAC write-gating, and append-only audit logging. 14/14 pytest tests passing against a live Postgres instance. Standalone HTML dashboard (`dashboard/`) with static JSON export (`scripts/export_dashboard_data.py`) verified end-to-end. See `CHANGELOG.md` (2026-09-22 entry) for full detail. |
 | 2 | Plan Generators | Not started |
 | 3 | Crisis Management | Not started |
 | 4 | Exercise & Test Planner | Not started |
@@ -120,10 +120,10 @@ To keep documentation on-order as the build progresses (not just at kickoff):
 
 ## Next Steps
 
-- [ ] Scaffold repo structure (Python package, FastMCP server skeleton, `data/` for SQLite/JSON, `dashboard/` for standalone HTML).
-- [ ] Implement Phase 0 data model (entities + schema, ISO/NIST/BCI terminology mapping).
-- [ ] Implement Phase 1 BIA engine (calculation logic, gap analysis, resource/dependency tracking).
-- [ ] Build standalone HTML dashboard for BIA entry + gap analysis visualization (demo-facing).
-- [ ] Write test suite for MTPD/RTO/RPO business rule enforcement.
+- [x] Scaffold repo structure (Python package, FastMCP server skeleton, `dashboard/` for standalone HTML). *(Note: `data/` for SQLite/JSON was superseded by the PostgreSQL decision in `schema/SCHEMA_REVIEW.md` — no SQLite/JSON data directory was built.)*
+- [x] Implement Phase 0 data model (entities + schema, ISO/NIST/BCI terminology mapping). *(Schema was already committed pre-Phase-0-build; this item closes out the repo-scaffold half of Phase 0.)*
+- [x] Implement Phase 1 BIA engine (calculation logic, gap analysis, resource/dependency tracking).
+- [x] Build standalone HTML dashboard for BIA entry + gap analysis visualization (demo-facing). *(Read-only demo view via static JSON export, not a data-entry UI — data entry happens via the MCP tools per the Phase 1 brief.)*
+- [x] Write test suite for MTPD/RTO/RPO business rule enforcement. *(14 tests in `tests/test_bia_engine.py`, covering RTO<MTPD, hierarchy CRUD, gap analysis, SPOF detection, recovery strategy selection, RBAC, and audit logging — see `TESTING.md`.)*
 - [ ] Once Phase 1 is solid: Phase 2 plan generators, then Phase 3 crisis management module.
 - [ ] Revisit Phase 4/5 after Peter has used the tool on at least one real (personal/demo) BIA case end-to-end.

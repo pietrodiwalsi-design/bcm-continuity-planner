@@ -2,7 +2,39 @@
 
 Personal portfolio/demo tool for Business Impact Analysis (BIA), Business Continuity Plan (BCP), and Crisis Management Plan (CMP) development — built by Peter van Walsem to establish a market presence as a BCM specialist.
 
-**Status:** Planning phase. Not yet implemented.
+**Status:** Phase 0 (repo scaffold) and Phase 1 (BIA Engine) complete. See the "Phase Status" table in [DEVELOPMENT_PLAN.md](./DEVELOPMENT_PLAN.md).
+
+## Getting Started
+
+Requires Docker + Docker Compose and Python 3.10+.
+
+```bash
+# 1. Clone and enter the repo, then copy env defaults
+cp .env.example .env
+
+# 2. Start local PostgreSQL — schema/001 and schema/002 are auto-applied
+#    on first boot via docker-entrypoint-initdb.d
+docker compose up -d
+docker compose ps   # wait for STATUS to show "healthy"
+
+# 3. Install the package (editable) and its dependencies
+pip install -e .
+# or: pip install -r requirements.txt && pip install -e .
+
+# 4. Run the FastMCP server (stdio transport, for Claude Desktop / OpenClaw / etc.)
+bcm-mcp
+# or: python -m bcm_planner.mcp_server
+
+# 5. Run the test suite (see TESTING.md for full detail)
+set -a; . ./.env; set +a
+pytest tests/ -v
+
+# 6. Generate the demo dashboard data, then open dashboard/index.html in a browser
+python3 scripts/export_dashboard_data.py
+```
+
+See [TESTING.md](./TESTING.md) for full test instructions and
+[DEVELOPMENT_PLAN.md](./DEVELOPMENT_PLAN.md) for architecture and phase status.
 
 ## Scope
 

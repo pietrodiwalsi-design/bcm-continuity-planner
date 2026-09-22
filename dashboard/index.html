@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BCM Continuity Planner — BIA Dashboard</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <h1>BCM Continuity Planner — BIA Dashboard</h1>
+    <p>Standalone demo view of Phase 1 Business Impact Analysis data. Read-only, static export — see scripts/export_dashboard_data.py.</p>
+    <p id="load-status">Loading data.json…</p>
+  </header>
+
+  <main>
+    <section>
+      <h2>Activity Hierarchy</h2>
+      <div id="hierarchy-tree" class="tree"></div>
+    </section>
+
+    <section>
+      <h2>BIA Assessments — MTPD / RTO / RPO / MBCO &amp; Gap Status</h2>
+      <table id="bia-table">
+        <thead>
+          <tr>
+            <th>Activity</th>
+            <th>Assessor</th>
+            <th>MTPD</th>
+            <th>RTO</th>
+            <th>RPO</th>
+            <th>MBCO</th>
+            <th>Gap Status</th>
+            <th>Recovery Strategy</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <p id="bia-empty" class="empty-state" style="display:none;">No BIA assessments registered yet.</p>
+    </section>
+
+    <section>
+      <h2>Single Points of Failure</h2>
+      <div id="spof-list"></div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

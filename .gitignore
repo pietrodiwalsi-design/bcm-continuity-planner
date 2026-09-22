@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Environment / secrets
+.env
+*.env.local
+
+# Docker
+*.pid
+
+# Dashboard generated data (regenerate via scripts/export_dashboard_data.py)
+dashboard/data.json
+
+# OS
+.DS_Store

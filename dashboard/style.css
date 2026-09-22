@@ -1,0 +1,157 @@
+:root {
+  --bg: #0f1621;
+  --panel: #16202f;
+  --panel-border: #263244;
+  --text: #e6edf3;
+  --muted: #9aa7b8;
+  --accent: #4f8cff;
+  --red: #e5484d;
+  --green: #3fb950;
+  --amber: #d29922;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.45;
+}
+
+header {
+  padding: 24px 32px;
+  border-bottom: 1px solid var(--panel-border);
+}
+
+header h1 {
+  margin: 0 0 4px 0;
+  font-size: 22px;
+}
+
+header p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+main {
+  padding: 24px 32px;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 24px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+section {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  padding: 20px;
+}
+
+section h2 {
+  margin-top: 0;
+  font-size: 16px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+#load-status {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.tree ul {
+  list-style: none;
+  padding-left: 20px;
+  margin: 4px 0;
+}
+
+.tree > ul {
+  padding-left: 0;
+}
+
+.tree li {
+  margin: 4px 0;
+}
+
+.activity-node {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: rgba(255,255,255,0.03);
+}
+
+.spof-badge {
+  background: var(--red);
+  color: white;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+th, td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--panel-border);
+}
+
+th {
+  color: var(--muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.03em;
+}
+
+.pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.pill-red { background: rgba(229,72,77,0.18); color: var(--red); }
+.pill-green { background: rgba(63,185,80,0.18); color: var(--green); }
+.pill-muted { background: rgba(154,167,184,0.18); color: var(--muted); }
+
+.strategy-selected {
+  color: var(--green);
+  font-weight: 600;
+}
+
+.empty-state {
+  color: var(--muted);
+  font-style: italic;
+  font-size: 13px;
+}
+
+.spof-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.spof-item {
+  background: rgba(229,72,77,0.08);
+  border: 1px solid rgba(229,72,77,0.3);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+}
