@@ -70,7 +70,7 @@ To keep documentation on-order as the build progresses (not just at kickoff):
 | 2 | Plan Generators | **Complete** (2026-09-22). BCP template builder + workflow generator (`bc_plans`/`bcp_action_steps` CRUD, rule-based auto-generation from a BIA + selected recovery strategy) and Return-to-BAU module (`bau_return_procedures` CRUD, standard 4-phase auto-generation). RBAC + audit logging reused unchanged from Phase 1. 21 new tests, 35/35 passing total. Dashboard extended with a BCP summary table. See `CHANGELOG.md` (2026-09-22 Phase 2 entry) and `docs/bcp_generation_rules.md` for full detail. |
 | 3 | Crisis Management | **Complete** (2026-09-22). CMT role definitions + escalation trigger CRUD (`cmt_roles`, `escalation_triggers`) with a documented, simple severity-based escalation-path heuristic (`get_escalation_path_for_severity`), plus stakeholder contact matrix + message bank CRUD and a rule-based (draft-only, never auto-approved) holding statement generator (`generate_holding_statement_draft`). RBAC + audit logging reused unchanged from Phase 1/2. 22 new tests, 57/57 passing total. Dashboard extended with a CMT roster + escalation summary view (message bank/stakeholder contacts deliberately excluded from the dashboard — contains contact details/draft text not meant for a general demo view). See `CHANGELOG.md` (2026-09-22 Phase 3 entry) and `docs/crisis_communication_templates.md` for full detail. |
 | 4 | Exercise & Test Planner | **Complete** (2026-09-22). Modular exercise/test planner (`exercise_programmes`/`exercises` CRUD) with a rule-based `get_disruption_scenario_template` helper (power_outage/cyberattack_ddos/data_breach/public_transit_disruption/key_supplier_failure); scenario inject & timeline storyboarding (`scenario_injects` CRUD, `get_exercise_storyboard` with sequence/time-order validation, `generate_injects_from_scenario_template`); debrief + CAPA tracking (`exercise_debriefs` CRUD with one-per-exercise enforcement, `capa_action_items` CRUD, `get_overdue_capa_items`/`get_open_capa_items`). RBAC + audit logging reused unchanged from Phase 1/2/3. 34 new tests, 91/91 passing total. Dashboard extended with an Exercises table and an Open/Overdue CAPA table. See `CHANGELOG.md` (2026-09-22 Phase 4 entry) and `docs/exercise_scenario_templates.md` for full detail. |
-| 5 | Governance & Lifecycle | Not started |
+| 5 | Governance & Lifecycle | **Complete** (2026-09-23). Multi-tier sign-off workflow (`create_sign_off_chain`/`submit_sign_off_decision`/`get_sign_off_status`/`restart_sign_off_chain`, standard 2-tier process-owner → top-management default, strict sequential blocking, tier-specific RBAC) built on `sign_off_approvals` from migration 002; version-control + recurring review-cycle scheduler (`compute_next_review_date` calendar-month heuristic, `document_review_schedule` CRUD, `document_versions`/`record_maintenance_update` maintenance log with auto-incrementing minor version labels) built on `document_review_schedule`/`document_versions` from migration 002. One new migration (`schema/003_governance_test_report_entity_type.sql`, adds `exercise_debrief` to `approval_entity_enum` for FR15's test-report coverage — the only schema gap found). RBAC + audit logging reused unchanged from Phase 1-4. 47 new tests, 138/138 passing total. Dashboard extended with a Sign-Off Status table and Overdue/Upcoming Review Schedule tables. See `CHANGELOG.md` (2026-09-23 Phase 5 entry) and `docs/governance_lifecycle.md` for full detail. |
 
 ## Phased Build Plan
 
@@ -253,6 +253,83 @@ implement:
 - Version control and recurring review-cycle scheduler (annual/event-driven), maintenance log across BIA/BCP/CMP/test reports.
 - Covers FR14–FR15. Lightweight state machine, no enterprise workflow engine needed.
 
+**Delivered (2026-09-23):** `src/bcm_planner/governance.py` implements:
+- `create_sign_off_chain(entity_type, entity_id, tiers=None)`: creates a
+  multi-tier `sign_off_approvals` chain, defaulting to the standard
+  2-tier `approver_process_owner` → `approver_top_management` sequence
+  (both roles already defined in migration 002's `user_role_enum`) unless
+  a custom `tiers` list is supplied. Duplicate-chain creation for the same
+  entity raises a clear `DuplicateSignOffChainError`.
+- `submit_sign_off_decision(entity_type, entity_id, sequence_order,
+  decision, comments=None)`: enforces the brief's core rule — **strict
+  sequential blocking**, a later tier cannot be decided until every
+  earlier tier is `approved` (`SignOffSequenceError` otherwise); one-shot
+  decisions (`SignOffAlreadyDecidedError` on a repeat); RBAC gated on the
+  *specific tier's* `required_role` (or `admin`), not the generic
+  `WRITE_ROLES` set — deliberately narrower than ordinary edit access.
+- `get_sign_off_status(entity_type, entity_id)`: read-only overall status
+  heuristic (`not_started`/`in_progress`/`approved`/`rejected`/
+  `returned_for_revision`) plus the current pending tier, used by both
+  callers and the dashboard export.
+- `restart_sign_off_chain(entity_type, entity_id)`: explicit, audited
+  reset of every tier back to `pending` after a rejection/return, the
+  only supported way to re-run a sign-off cycle (`WRITE_ROLES`-gated, not
+  tier-specific — restarting the chain structure is an administrative
+  action).
+- `compute_next_review_date(base_date, review_frequency_months)`: a pure,
+  stdlib-`calendar`-only month-arithmetic heuristic (no new dependency),
+  with day-of-month clamping for month-end/leap-year edge cases
+  (`2026-01-31 + 1 month → 2026-02-28`).
+- `document_review_schedule` CRUD (`create_review_schedule`,
+  `get_review_schedule`, `get_review_schedule_for_entity`,
+  `update_review_schedule`, `mark_review_completed`), supporting both
+  `periodic` (auto-computed `next_review_date`, annual default) and
+  `event_driven` (explicit `next_review_date` required) trigger types per
+  REQUIREMENTS.md FR15's "annual/event-driven" wording; plus
+  `list_upcoming_review_schedules(within_days=90)` and
+  `get_overdue_review_schedules()` for dashboard/reporting use.
+- `document_versions` CRUD (`create_document_version`,
+  `get_document_version`, `list_document_versions_for_entity`,
+  `get_latest_document_version`) — the same table Phase 2's
+  `bcp_generator._record_bc_plan_provenance` already writes to, now with
+  a general-purpose entry point spanning every governed entity type —
+  and `record_maintenance_update(entity_type, entity_id, change_summary,
+  snapshot_json=None, version_label=None)`, FR15's maintenance-log
+  convenience wrapper, auto-incrementing a `major.minor` version label
+  (`"1.0"` → `"1.1"` → `"1.2"`) when one isn't supplied explicitly.
+- **One new migration**, `schema/003_governance_test_report_entity_type.sql`:
+  adds `exercise_debrief` to `approval_entity_enum` (a standalone
+  `ALTER TYPE ... ADD VALUE`, kept in its own file per Postgres's
+  restrictions on that statement inside a larger transaction) — the only
+  schema gap found; every column Phase 5 needed on `sign_off_approvals`/
+  `document_review_schedule`/`document_versions` was already present in
+  migration 002. `docker-compose.yml` updated to mount migration 003.
+- RBAC (`bia_engine.require_role`/`WRITE_ROLES`) and audit logging
+  (`bia_engine.log_audit`) reused unchanged — no second pattern
+  introduced, with the one deliberate exception noted above (tier-
+  specific RBAC on `submit_sign_off_decision`).
+- 19 new FastMCP tools registered in `mcp_server.py` (98 total — server
+  version bumped 0.4.0 → 0.5.0).
+- Dashboard (`scripts/export_dashboard_data.py`, `dashboard/`) extended
+  with a "Governance — Sign-Off Status" table (entity, tier count,
+  overall status, current pending tier) and a "Governance — Document
+  Review Schedule" section (separate Overdue/Upcoming-within-90-days
+  tables, each showing the current version label). Unlike Phase 3's
+  exclusion of message bank/contact content, sign-off comments and
+  version `snapshot_json` **are** included here — they are the point of
+  a governance view, not incidental sensitive content.
+- 47 new tests in `tests/test_governance.py`, 138/138 passing total (91
+  pre-existing + 47 new).
+- **Deferred / out of scope**, consistent with the brief's "lightweight
+  state machine, no enterprise workflow engine": no notifications/
+  reminders when a review is due or a sign-off tier is pending; no
+  delegation/out-of-office handling for sign-off approvers; no
+  auto-detection of "the underlying document changed" to auto-trigger a
+  chain restart (left to the human calling `restart_sign_off_chain`);
+  `crisis_management_plan` entity_type accepted but has no existence
+  check (no single backing table for it — see `docs/governance_lifecycle.md`
+  §1 for the documented gap).
+
 ## Priority Order for Build
 
 1. Phase 0 + Phase 1 (BIA Engine) — the unique, hardest, best-demo part.
@@ -270,4 +347,6 @@ implement:
 - [x] Write test suite for MTPD/RTO/RPO business rule enforcement. *(14 tests in `tests/test_bia_engine.py`, covering RTO<MTPD, hierarchy CRUD, gap analysis, SPOF detection, recovery strategy selection, RBAC, and audit logging — see `TESTING.md`.)*
 - [x] Once Phase 1 is solid: Phase 2 plan generators. *(BCP template builder + workflow generator and Return-to-BAU module, both rule-based auto-generation from Phase 1 BIA data; see Phase 2 section above and `CHANGELOG.md`.)*
 - [x] Phase 3 crisis management module (CMT roles, escalation, crisis comms/message bank). *(CMT role + escalation trigger CRUD, `get_escalation_path_for_severity` heuristic, stakeholder contact matrix + message bank CRUD, and `generate_holding_statement_draft`; see Phase 3 section above and `CHANGELOG.md`.)*
-- [ ] Revisit Phase 4/5 after Peter has used the tool on at least one real (personal/demo) BIA case end-to-end.
+- [x] Phase 4 exercise & test planner module (exercise/programme CRUD, scenario templates, storyboard injects, debrief + CAPA tracking). *(See Phase 4 section above and `CHANGELOG.md`.)*
+- [x] Phase 5 governance & lifecycle module (multi-tier sign-off workflow, review-cycle scheduler, version/maintenance log). *(Sign-off chain CRUD + sequential-blocking state machine, `compute_next_review_date` heuristic, `document_review_schedule`/`document_versions` CRUD, `record_maintenance_update`; one new migration `schema/003_governance_test_report_entity_type.sql`; see Phase 5 section above, `CHANGELOG.md`, and `docs/governance_lifecycle.md`.)*
+- [ ] Revisit the tool holistically after Peter has used it on at least one real (personal/demo) BIA case end-to-end, across all five phases.

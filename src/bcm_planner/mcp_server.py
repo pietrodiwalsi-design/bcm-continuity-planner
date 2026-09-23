@@ -26,30 +26,36 @@ from bcm_planner import (
     db,
     exercise_debrief,
     exercise_planner,
+    governance,
     scenario_injects,
 )
 
 mcp = FastMCP(
     name="bcm-continuity-planner-mcp",
-    version="0.4.0",
+    version="0.5.0",
     instructions=(
         "BIA Engine (Phase 1) + Plan Generators (Phase 2) + Crisis Management "
-        "(Phase 3) + Exercise & Test Planner (Phase 4) for the BCM Continuity "
-        "Planner: scope/hierarchy CRUD, impact matrix configuration, "
-        "MTPD/RTO/RPO/MBCO capture with enforced RTO<MTPD, gap analysis with "
-        "single-point-of-failure detection, recovery strategy selection, BCP "
-        "template builder + workflow generator (bc_plans/bcp_action_steps, "
-        "including rule-based auto-generation from a BIA + recovery "
-        "strategy), Return-to-BAU procedures, Crisis Management Team (CMT) "
-        "role + escalation trigger CRUD with a severity-based escalation path "
-        "helper, Crisis Communication stakeholder contact matrix + message "
-        "bank CRUD with a rule-based (draft-only, never legally pre-approved) "
-        "holding statement generator, exercise programme/exercise CRUD with a "
+        "(Phase 3) + Exercise & Test Planner (Phase 4) + Governance & "
+        "Lifecycle (Phase 5) for the BCM Continuity Planner: scope/hierarchy "
+        "CRUD, impact matrix configuration, MTPD/RTO/RPO/MBCO capture with "
+        "enforced RTO<MTPD, gap analysis with single-point-of-failure "
+        "detection, recovery strategy selection, BCP template builder + "
+        "workflow generator (bc_plans/bcp_action_steps, including rule-based "
+        "auto-generation from a BIA + recovery strategy), Return-to-BAU "
+        "procedures, Crisis Management Team (CMT) role + escalation trigger "
+        "CRUD with a severity-based escalation path helper, Crisis "
+        "Communication stakeholder contact matrix + message bank CRUD with a "
+        "rule-based (draft-only, never legally pre-approved) holding "
+        "statement generator, exercise programme/exercise CRUD with a "
         "rule-based disruption scenario template helper, scenario inject/"
         "storyboard CRUD with timeline validation and rule-based inject "
-        "generation, and exercise debrief + CAPA action item CRUD with an "
-        "overdue-CAPA tracking helper. All write tools require a valid "
-        "application_users.user_id with a permitted role."
+        "generation, exercise debrief + CAPA action item CRUD with an "
+        "overdue-CAPA tracking helper, a multi-tier (process owner -> top "
+        "management) sign-off workflow state machine for BIA/BCP/recovery "
+        "strategy/exercise debrief entities, and a document review-cycle "
+        "scheduler + version/maintenance log spanning every governed entity "
+        "type. All write tools require a valid application_users.user_id "
+        "with a permitted role."
     ),
 )
 
@@ -1141,6 +1147,293 @@ def get_open_capa_items(organization_id: str) -> list[dict[str, Any]]:
     """
     with db.get_connection() as conn:
         return exercise_debrief.get_open_capa_items(conn, organization_id)
+
+
+# ---------------------------------------------------------------------------
+# Phase 5 — Governance & Lifecycle: multi-tier sign-off workflow (FR14)
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+def create_sign_off_chain(
+    user_id: str, entity_type: str, entity_id: str, tiers: Optional[list[dict[str, Any]]] = None,
+) -> list[dict[str, Any]]:
+    """Creates a multi-tier sign-off chain for a governed entity
+    (bia_assessment / bc_plan / recovery_strategy / crisis_management_plan /
+    exercise_debrief), all tiers starting 'pending'. Defaults to the
+    standard two-tier (process owner -> top management) chain if `tiers`
+    is not given; otherwise pass a list of {"sequence_order": int,
+    "required_role": str} dicts. Raises a clear error if a chain already
+    exists for this entity.
+    """
+    try:
+        with db.get_connection() as conn:
+            return governance.create_sign_off_chain(conn, user_id, entity_type, entity_id, tiers)
+    except governance.BCMPlannerError as exc:
+        return [_err(exc)]
+
+
+@mcp.tool()
+def get_sign_off_approval(approval_id: str) -> dict[str, Any]:
+    """Reads a single sign_off_approvals tier row by ID."""
+    try:
+        with db.get_connection() as conn:
+            return governance.get_sign_off_approval(conn, approval_id)
+    except governance.BCMPlannerError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def list_sign_off_approvals_for_entity(entity_type: str, entity_id: str) -> list[dict[str, Any]]:
+    """Lists every sign-off tier for an entity, ordered by sequence_order
+    ascending (tier 1 first)."""
+    with db.get_connection() as conn:
+        return governance.list_sign_off_approvals_for_entity(conn, entity_type, entity_id)
+
+
+@mcp.tool()
+def get_current_pending_tier(entity_type: str, entity_id: str) -> Optional[dict[str, Any]]:
+    """Returns the lowest-sequence_order tier still 'pending' for an
+    entity (the next gate that needs to be actioned), or None if every
+    tier has already been decided.
+    """
+    with db.get_connection() as conn:
+        return governance.get_current_pending_tier(conn, entity_type, entity_id)
+
+
+@mcp.tool()
+def get_sign_off_status(entity_type: str, entity_id: str) -> dict[str, Any]:
+    """Returns the overall sign-off status for an entity: 'not_started',
+    'in_progress', 'approved', 'rejected', or 'returned_for_revision',
+    plus the full tier list and the current pending tier (if any).
+    """
+    with db.get_connection() as conn:
+        return governance.get_sign_off_status(conn, entity_type, entity_id)
+
+
+@mcp.tool()
+def submit_sign_off_decision(
+    user_id: str, entity_type: str, entity_id: str, sequence_order: int,
+    decision: str, comments: Optional[str] = None,
+) -> dict[str, Any]:
+    """Records a decision ('approved' / 'rejected' / 'returned_for_revision')
+    for one tier of an entity's sign-off chain. Blocks with a clear
+    SignOffSequenceError if any earlier tier has not yet been approved,
+    and with SignOffAlreadyDecidedError if the target tier was already
+    decided. Requires the acting user to hold that tier's required_role
+    (or 'admin').
+    """
+    try:
+        with db.get_connection() as conn:
+            return governance.submit_sign_off_decision(
+                conn, user_id, entity_type, entity_id, sequence_order, decision, comments,
+            )
+    except governance.BCMPlannerError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def restart_sign_off_chain(user_id: str, entity_type: str, entity_id: str) -> list[dict[str, Any]]:
+    """Resets every tier of an entity's sign-off chain back to 'pending' —
+    the explicit, auditable way to restart a sign-off cycle after a
+    rejection or a return-for-revision, once the underlying document has
+    been revised.
+    """
+    try:
+        with db.get_connection() as conn:
+            return governance.restart_sign_off_chain(conn, user_id, entity_type, entity_id)
+    except governance.BCMPlannerError as exc:
+        return [_err(exc)]
+
+
+# ---------------------------------------------------------------------------
+# Phase 5 — Governance & Lifecycle: version control & review scheduler (FR15)
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+def compute_next_review_date(base_date: str, review_frequency_months: int) -> str:
+    """Adds review_frequency_months calendar months to base_date (ISO date
+    string), clamping the day-of-month to the last valid day of the
+    target month where needed (e.g. 2026-01-31 + 1 month -> 2026-02-28).
+    Returns an ISO date string.
+    """
+    result = governance.compute_next_review_date(
+        datetime.date.fromisoformat(base_date), review_frequency_months,
+    )
+    return result.isoformat()
+
+
+@mcp.tool()
+def create_review_schedule(
+    user_id: str, entity_type: str, entity_id: str,
+    review_frequency_months: int = 12,
+    last_reviewed_date: Optional[str] = None,
+    next_review_date: Optional[str] = None,
+    review_trigger_type: str = "periodic",
+    trigger_event_description: Optional[str] = None,
+    notes: Optional[str] = None,
+) -> dict[str, Any]:
+    """Creates a document_review_schedule row for a governed entity.
+    For review_trigger_type='periodic', next_review_date is
+    auto-computed from last_reviewed_date (or today) + 
+    review_frequency_months if not supplied. For 'event_driven',
+    next_review_date must be supplied explicitly. Dates are ISO strings.
+    """
+    try:
+        with db.get_connection() as conn:
+            return governance.create_review_schedule(
+                conn, user_id, entity_type, entity_id, review_frequency_months,
+                datetime.date.fromisoformat(last_reviewed_date) if last_reviewed_date else None,
+                datetime.date.fromisoformat(next_review_date) if next_review_date else None,
+                review_trigger_type, trigger_event_description, notes,
+            )
+    except governance.BCMPlannerError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def get_review_schedule(schedule_id: str) -> dict[str, Any]:
+    """Reads a single document_review_schedule row by ID."""
+    try:
+        with db.get_connection() as conn:
+            return governance.get_review_schedule(conn, schedule_id)
+    except governance.BCMPlannerError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def get_review_schedule_for_entity(entity_type: str, entity_id: str) -> Optional[dict[str, Any]]:
+    """Reads the review schedule for an entity, if one exists. Returns
+    None (not an error) if no schedule has been created yet.
+    """
+    with db.get_connection() as conn:
+        return governance.get_review_schedule_for_entity(conn, entity_type, entity_id)
+
+
+@mcp.tool()
+def update_review_schedule(user_id: str, schedule_id: str, fields: dict[str, Any]) -> dict[str, Any]:
+    """Updates mutable fields on an existing document_review_schedule row.
+
+    `fields` may include: review_frequency_months, last_reviewed_date
+    (ISO string), next_review_date (ISO string), review_trigger_type,
+    trigger_event_description, notes.
+    """
+    try:
+        parsed = dict(fields)
+        for date_field in ("last_reviewed_date", "next_review_date"):
+            if date_field in parsed and isinstance(parsed[date_field], str):
+                parsed[date_field] = datetime.date.fromisoformat(parsed[date_field])
+        with db.get_connection() as conn:
+            return governance.update_review_schedule(conn, user_id, schedule_id, **parsed)
+    except governance.BCMPlannerError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def mark_review_completed(
+    user_id: str, schedule_id: str,
+    reviewed_date: Optional[str] = None, next_review_date: Optional[str] = None,
+) -> dict[str, Any]:
+    """Records that a scheduled review happened: sets last_reviewed_date
+    (default: today) and advances next_review_date (auto-computed for
+    'periodic' schedules, must be supplied explicitly for 'event_driven'
+    ones). Dates are ISO strings.
+    """
+    try:
+        with db.get_connection() as conn:
+            return governance.mark_review_completed(
+                conn, user_id, schedule_id,
+                datetime.date.fromisoformat(reviewed_date) if reviewed_date else None,
+                datetime.date.fromisoformat(next_review_date) if next_review_date else None,
+            )
+    except governance.BCMPlannerError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def list_upcoming_review_schedules(within_days: int = 90) -> list[dict[str, Any]]:
+    """Returns document_review_schedule rows due within the next
+    within_days days, ordered by next_review_date ascending.
+    """
+    with db.get_connection() as conn:
+        return governance.list_upcoming_review_schedules(conn, within_days)
+
+
+@mcp.tool()
+def get_overdue_review_schedules() -> list[dict[str, Any]]:
+    """Returns document_review_schedule rows past their next_review_date,
+    ordered by next_review_date ascending (most overdue first).
+    """
+    with db.get_connection() as conn:
+        return governance.get_overdue_review_schedules(conn)
+
+
+@mcp.tool()
+def create_document_version(
+    user_id: str, entity_type: str, entity_id: str, version_label: str,
+    snapshot_json: dict[str, Any], change_summary: Optional[str] = None,
+) -> dict[str, Any]:
+    """Creates a document_versions row — a full JSONB snapshot of an
+    entity tagged with a human-assigned version_label (e.g. '1.0').
+    Raises a clear error if this version_label already exists for the
+    entity.
+    """
+    try:
+        with db.get_connection() as conn:
+            return governance.create_document_version(
+                conn, user_id, entity_type, entity_id, version_label, snapshot_json, change_summary,
+            )
+    except governance.BCMPlannerError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def get_document_version(version_id: str) -> dict[str, Any]:
+    """Reads a single document_versions row by ID."""
+    try:
+        with db.get_connection() as conn:
+            return governance.get_document_version(conn, version_id)
+    except governance.BCMPlannerError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def list_document_versions_for_entity(entity_type: str, entity_id: str) -> list[dict[str, Any]]:
+    """Returns every document_versions row for an entity, newest first —
+    the full maintenance/version history for a single BIA/BCP/CMP/test
+    report.
+    """
+    with db.get_connection() as conn:
+        return governance.list_document_versions_for_entity(conn, entity_type, entity_id)
+
+
+@mcp.tool()
+def get_latest_document_version(entity_type: str, entity_id: str) -> Optional[dict[str, Any]]:
+    """Returns the most recent document_versions row for an entity, or
+    None if it has never been versioned.
+    """
+    with db.get_connection() as conn:
+        return governance.get_latest_document_version(conn, entity_type, entity_id)
+
+
+@mcp.tool()
+def record_maintenance_update(
+    user_id: str, entity_type: str, entity_id: str, change_summary: str,
+    snapshot_json: Optional[dict[str, Any]] = None, version_label: Optional[str] = None,
+) -> dict[str, Any]:
+    """Logs a maintenance update for a governed entity (FR15): creates a
+    document_versions row, auto-computing the next minor version_label
+    (e.g. '1.0' -> '1.1') if one isn't given. snapshot_json defaults to
+    an empty object if only a change_summary is being logged.
+    """
+    try:
+        with db.get_connection() as conn:
+            return governance.record_maintenance_update(
+                conn, user_id, entity_type, entity_id, change_summary, snapshot_json, version_label,
+            )
+    except governance.BCMPlannerError as exc:
+        return _err(exc)
 
 
 def main() -> None:

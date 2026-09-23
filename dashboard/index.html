@@ -132,6 +132,57 @@
       </table>
       <p id="capa-empty" class="empty-state" style="display:none;">No overdue CAPA action items — either none are overdue or none have been recorded yet.</p>
     </section>
+
+    <section>
+      <h2>Governance — Sign-Off Status (Phase 5)</h2>
+      <p class="section-note">Overall multi-tier (process owner → top management) sign-off status per governed entity. See docs/governance_lifecycle.md for the state-machine rules.</p>
+      <table id="sign-off-table">
+        <thead>
+          <tr>
+            <th>Entity Type</th>
+            <th>Entity ID</th>
+            <th>Tiers</th>
+            <th>Overall Status</th>
+            <th>Current Tier</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <p id="sign-off-empty" class="empty-state" style="display:none;">No sign-off chains created yet.</p>
+    </section>
+
+    <section>
+      <h2>Governance — Document Review Schedule (Phase 5)</h2>
+      <p class="section-note">Upcoming (next 90 days) and overdue recurring review cycles, plus the current version label per entity. See docs/governance_lifecycle.md.</p>
+      <h3>Overdue Reviews</h3>
+      <table id="review-overdue-table">
+        <thead>
+          <tr>
+            <th>Entity Type</th>
+            <th>Entity ID</th>
+            <th>Next Review Date</th>
+            <th>Trigger Type</th>
+            <th>Current Version</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <p id="review-overdue-empty" class="empty-state" style="display:none;">No overdue reviews — good standing.</p>
+      <h3>Upcoming Reviews (next 90 days)</h3>
+      <table id="review-upcoming-table">
+        <thead>
+          <tr>
+            <th>Entity Type</th>
+            <th>Entity ID</th>
+            <th>Next Review Date</th>
+            <th>Trigger Type</th>
+            <th>Current Version</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <p id="review-upcoming-empty" class="empty-state" style="display:none;">No reviews due within the next 90 days.</p>
+    </section>
   </main>
 
   <script src="app.js"></script>

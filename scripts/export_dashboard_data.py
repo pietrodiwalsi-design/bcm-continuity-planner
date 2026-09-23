@@ -19,7 +19,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from bcm_planner import bcp_generator, bia_engine, db, exercise_debrief  # noqa: E402
+from bcm_planner import bcp_generator, bia_engine, db, exercise_debrief, governance  # noqa: E402
 
 
 def _json_default(value: Any) -> Any:
@@ -109,6 +109,21 @@ def export_data(conn) -> dict[str, Any]:
 
         cur.execute("SELECT exercise_id, debrief_id, overall_rating FROM exercise_debriefs")
         debrief_rows = cur.fetchall()
+
+        # Phase 5: every sign-off chain tier, and the full review-schedule /
+        # document-version tables. Sign-off comments and version
+        # snapshot_json are included (unlike Phase 3's message_bank /
+        # stakeholder_contact_matrices) since sign-off decisions and version
+        # history are the whole point of a governance dashboard view, not
+        # sensitive contact/comms content — see docs/governance_lifecycle.md.
+        cur.execute("SELECT * FROM sign_off_approvals ORDER BY entity_type, entity_id, sequence_order")
+        sign_off_approvals = cur.fetchall()
+
+        cur.execute("SELECT * FROM document_review_schedule ORDER BY next_review_date")
+        review_schedules = cur.fetchall()
+
+        cur.execute("SELECT * FROM document_versions ORDER BY entity_type, entity_id, created_at DESC")
+        document_versions = cur.fetchall()
 
     # Build activity trees per process for the dashboard's hierarchy view.
     process_trees = []
@@ -212,6 +227,60 @@ def export_data(conn) -> dict[str, Any]:
                 for item in overdue_items
             ]
 
+    # Phase 5: group sign-off tiers by (entity_type, entity_id) and derive
+    # the same overall_status heuristic used by governance.get_sign_off_status
+    # (not_started / in_progress / approved / rejected / returned_for_revision)
+    # for a compact per-entity dashboard summary, without re-querying per
+    # entity via the module (this export runs against the full table dump
+    # already fetched above).
+    sign_off_chains_by_entity: dict[str, list[dict[str, Any]]] = {}
+    for tier in sign_off_approvals:
+        key = f"{tier['entity_type']}:{tier['entity_id']}"
+        sign_off_chains_by_entity.setdefault(key, []).append(tier)
+
+    sign_off_status_summary = []
+    for key, tiers in sign_off_chains_by_entity.items():
+        entity_type, entity_id = key.split(":", 1)
+        decisions = [t["decision"] for t in tiers]
+        if any(d == "rejected" for d in decisions):
+            overall_status = "rejected"
+        elif any(d == "returned_for_revision" for d in decisions):
+            overall_status = "returned_for_revision"
+        elif all(d == "approved" for d in decisions):
+            overall_status = "approved"
+        else:
+            overall_status = "in_progress"
+        pending = [t for t in tiers if t["decision"] == "pending"]
+        current_tier = min(pending, key=lambda t: t["sequence_order"]) if pending else None
+        sign_off_status_summary.append({
+            "entity_type": entity_type,
+            "entity_id": entity_id,
+            "overall_status": overall_status,
+            "tier_count": len(tiers),
+            "current_tier_sequence_order": current_tier["sequence_order"] if current_tier else None,
+            "current_tier_required_role": current_tier["required_role"] if current_tier else None,
+        })
+
+    # Phase 5: split review schedules into upcoming (next 90 days) / overdue
+    # buckets for the dashboard, same window governance.list_upcoming_review_
+    # schedules() defaults to.
+    today = __import__("datetime").date.today()
+    horizon = today + __import__("datetime").timedelta(days=90)
+    upcoming_review_schedules = [
+        s for s in review_schedules if today <= s["next_review_date"] <= horizon
+    ]
+    overdue_review_schedules = [
+        s for s in review_schedules if s["next_review_date"] < today
+    ]
+
+    # Phase 5: latest document_versions row per (entity_type, entity_id) for
+    # a compact "current version" dashboard column.
+    latest_version_by_entity: dict[str, dict[str, Any]] = {}
+    for version in document_versions:
+        key = f"{version['entity_type']}:{version['entity_id']}"
+        if key not in latest_version_by_entity:
+            latest_version_by_entity[key] = version
+
     return {
         "generated_at": __import__("datetime").datetime.utcnow().isoformat() + "Z",
         "organizations": organizations,
@@ -235,6 +304,13 @@ def export_data(conn) -> dict[str, Any]:
         "escalation_summary_by_organization": escalation_summary_by_org,
         "exercises_summary": exercises_summary,
         "overdue_capa_by_organization": overdue_capa_by_org,
+        "sign_off_approvals": sign_off_approvals,
+        "sign_off_status_summary": sign_off_status_summary,
+        "review_schedules": review_schedules,
+        "upcoming_review_schedules": upcoming_review_schedules,
+        "overdue_review_schedules": overdue_review_schedules,
+        "document_versions": document_versions,
+        "latest_version_by_entity": latest_version_by_entity,
     }
 
 
@@ -257,7 +333,10 @@ def main() -> None:
           f"({len(data['bia_assessments'])} BIA assessments, {len(data['activities'])} activities, "
           f"{len(data['bc_plans'])} BC plans, {len(data['cmt_roles'])} CMT roles, "
           f"{len(data['escalation_triggers'])} escalation triggers, "
-          f"{len(data['exercises_summary'])} exercises, {overdue_capa_count} overdue CAPA items).")
+          f"{len(data['exercises_summary'])} exercises, {overdue_capa_count} overdue CAPA items, "
+          f"{len(data['sign_off_status_summary'])} sign-off chains, "
+          f"{len(data['upcoming_review_schedules'])} upcoming + {len(data['overdue_review_schedules'])} overdue "
+          f"review schedules, {len(data['document_versions'])} document versions).")
 
 
 if __name__ == "__main__":

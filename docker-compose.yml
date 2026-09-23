@@ -22,6 +22,7 @@ services:
       # on a fresh volume automatically applies 001 then 002 in order.
       - ./schema/001_core_schema.sql:/docker-entrypoint-initdb.d/001_core_schema.sql:ro
       - ./schema/002_rbac_approvals_review_additions.sql:/docker-entrypoint-initdb.d/002_rbac_approvals_review_additions.sql:ro
+      - ./schema/003_governance_test_report_entity_type.sql:/docker-entrypoint-initdb.d/003_governance_test_report_entity_type.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-bcm_admin} -d ${POSTGRES_DB:-bcm_continuity_planner}"]
       interval: 5s

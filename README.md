@@ -2,7 +2,7 @@
 
 Personal portfolio/demo tool for Business Impact Analysis (BIA), Business Continuity Plan (BCP), and Crisis Management Plan (CMP) development — built by Peter van Walsem to establish a market presence as a BCM specialist.
 
-**Status:** Phase 0 (repo scaffold), Phase 1 (BIA Engine), Phase 2 (Plan Generators — BCP builder + Return-to-BAU module), Phase 3 (Crisis Management — CMT roles/escalation mapping + crisis communications/message bank builder), and Phase 4 (Exercise & Test Planner — exercise programme/exercise CRUD, disruption scenario templates, scenario inject storyboarding, debrief + CAPA action tracking) complete. See the "Phase Status" table in [DEVELOPMENT_PLAN.md](./DEVELOPMENT_PLAN.md).
+**Status:** Phase 0 (repo scaffold), Phase 1 (BIA Engine), Phase 2 (Plan Generators — BCP builder + Return-to-BAU module), Phase 3 (Crisis Management — CMT roles/escalation mapping + crisis communications/message bank builder), Phase 4 (Exercise & Test Planner — exercise programme/exercise CRUD, disruption scenario templates, scenario inject storyboarding, debrief + CAPA action tracking), and Phase 5 (Governance & Lifecycle — multi-tier sign-off workflow, recurring review-cycle scheduler, version/maintenance log) complete. See the "Phase Status" table in [DEVELOPMENT_PLAN.md](./DEVELOPMENT_PLAN.md).
 
 ## Getting Started
 
@@ -164,6 +164,7 @@ A GitHub prior-art check (documented in REQUIREMENTS.md) found no open-source to
 - [docs/bcp_generation_rules.md](./docs/bcp_generation_rules.md) — Rule-based mapping used by the Phase 2 BCP/Return-to-BAU auto-generators (recovery strategy category → action step templates, standard BAU return phases).
 - [docs/crisis_communication_templates.md](./docs/crisis_communication_templates.md) — Rule-based holding statement template set used by the Phase 3 `generate_holding_statement_draft` helper, and the escalation-path notification heuristic used by `get_escalation_path_for_severity`.
 - [docs/exercise_scenario_templates.md](./docs/exercise_scenario_templates.md) — Rule-based disruption scenario template set used by the Phase 4 `get_disruption_scenario_template` helper, the matching inject templates used by `generate_injects_from_scenario_template`, and the storyboard validation rules used by `get_exercise_storyboard`.
+- [docs/governance_lifecycle.md](./docs/governance_lifecycle.md) — The Phase 5 multi-tier sign-off state machine (`create_sign_off_chain`/`submit_sign_off_decision`/`get_sign_off_status`), the `compute_next_review_date` calendar-month heuristic, and the `document_review_schedule`/`document_versions` review-cycle + maintenance-log logic.
 - [schema/001_core_schema.sql](./schema/001_core_schema.sql) — Core PostgreSQL schema (Peter's proposal).
 - [schema/002_rbac_approvals_review_additions.sql](./schema/002_rbac_approvals_review_additions.sql) — RBAC, sign-off workflow, review scheduler additions.
 - [schema/SCHEMA_REVIEW.md](./schema/SCHEMA_REVIEW.md) — Review of the schema proposal against requirements, gaps found and closed.

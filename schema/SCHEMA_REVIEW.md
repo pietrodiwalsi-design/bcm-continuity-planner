@@ -50,5 +50,32 @@ The original MVP proposal (see `DEVELOPMENT_PLAN.md` v1) suggested SQLite/JSON t
 
 - `001_core_schema.sql` — Peter's original proposal, unmodified.
 - `002_rbac_approvals_review_additions.sql` — RBAC, sign-off workflow, review scheduler, version history additions. Depends on `001` (uses the `uuid-ossp` extension created there).
+- `003_governance_test_report_entity_type.sql` — Phase 5 (Governance & Lifecycle) addition. Adds `exercise_debrief` to `approval_entity_enum`. Depends on `002` (the enum is defined there).
 
-Apply in order: `001` then `002`.
+Apply in order: `001` then `002` then `003`.
+
+## Phase 5 addition (2026-09-23): `exercise_debrief` added to `approval_entity_enum`
+
+When building Phase 5's sign-off workflow (FR14) and version/review-cycle
+scheduler (FR15) on top of `sign_off_approvals`/`document_review_schedule`/
+`document_versions`, every column those three tables needed was already
+present from migration 002 — **except** `approval_entity_enum` (the shared
+`entity_type` type for all three tables) only had 4 values
+(`bia_assessment`, `bc_plan`, `recovery_strategy`,
+`crisis_management_plan`). FR15 explicitly requires the maintenance log to
+cover "BIA, BCP, CMP, **test reports**" — there was no enum value for an
+exercise/test report (`exercise_debriefs`, from `001_core_schema.sql`).
+
+`003_governance_test_report_entity_type.sql` adds the missing value:
+
+```sql
+ALTER TYPE approval_entity_enum ADD VALUE IF NOT EXISTS 'exercise_debrief';
+```
+
+Kept as a standalone single-statement file (not bundled with any other
+DDL) because PostgreSQL does not allow `ALTER TYPE ... ADD VALUE` to run
+in the same transaction as statements that might use the new value —
+keeping it isolated avoids any ordering/transaction subtlety when applied
+via `docker-entrypoint-initdb.d`. No other schema change was needed for
+Phase 5; see `docs/governance_lifecycle.md` and the 2026-09-23 CHANGELOG
+entry for the full application-layer detail.

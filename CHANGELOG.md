@@ -4,6 +4,211 @@ All notable changes to this project are documented in this file. Dates are
 in `YYYY-MM-DD` format. This file is the chronological record referenced by
 the Documentation Governance rules in `DEVELOPMENT_PLAN.md`.
 
+## 2026-09-23 — Phase 5 (Governance & Lifecycle) complete
+
+**Phase 5 — Governance & Lifecycle (`src/bcm_planner/governance.py`,
+FastMCP tools registered in `bcm_planner.mcp_server`), covering
+FR14–FR15:**
+
+- **Multi-tier sign-off workflow (FR14):**
+  - `create_sign_off_chain(entity_type, entity_id, tiers=None)`: creates
+    the ordered `sign_off_approvals` rows for one entity. Defaults to the
+    standard 2-tier `approver_process_owner` → `approver_top_management`
+    chain (`STANDARD_SIGN_OFF_TIERS`) per the brief's "process owner →
+    top management" phrasing, or a caller-supplied custom `tiers` list.
+    Duplicate-chain creation for the same entity raises a clear
+    `DuplicateSignOffChainError` (pre-check + `SAVEPOINT`/`UniqueViolation`
+    backstop, same pattern as Phase 4's `DuplicateDebriefError`).
+  - `submit_sign_off_decision(entity_type, entity_id, sequence_order,
+    decision, comments=None)`: the core state-machine rule — **a later
+    tier cannot be decided until every earlier tier is `approved`**
+    (`SignOffSequenceError`, naming the specific blocking tier); decisions
+    are one-shot (`SignOffAlreadyDecidedError` on a repeat); RBAC gated on
+    the **specific tier's `required_role`** (or `admin`) rather than the
+    generic `WRITE_ROLES` allow-list — a deliberate, documented deviation
+    from every other write in this codebase, since sign-off authority is
+    narrower than general edit authority.
+  - `get_sign_off_status(entity_type, entity_id)`: read-only
+    `not_started`/`in_progress`/`approved`/`rejected`/
+    `returned_for_revision` heuristic plus the current pending tier.
+    `get_current_pending_tier`/`get_sign_off_approval`/
+    `list_sign_off_approvals_for_entity` are the underlying read helpers.
+  - `restart_sign_off_chain(entity_type, entity_id)`: explicit,
+    `WRITE_ROLES`-gated reset of every tier back to `pending` — the only
+    supported way to re-run a cycle after a rejection/return, once the
+    document has been revised (no automatic re-trigger on document edit;
+    left to the human, same as Phase 4's manual CAPA status transitions).
+
+- **Version control & recurring review-cycle scheduler (FR15):**
+  - `compute_next_review_date(base_date, review_frequency_months)`: a
+    pure, stdlib-`calendar`-only month-arithmetic heuristic (no new
+    dependency added), clamping the day-of-month for month-end/leap-year
+    edge cases (`2026-01-31 + 1 month → 2026-02-28`;
+    `2027-01-31 + 13 months → 2028-02-29`).
+  - `document_review_schedule` CRUD: `create_review_schedule`,
+    `get_review_schedule`, `get_review_schedule_for_entity` (returns
+    `None`, not an error, if absent), `update_review_schedule`,
+    `mark_review_completed`. Supports both `periodic` (`next_review_date`
+    auto-computed, annual default per `review_frequency_months=12`) and
+    `event_driven` (`next_review_date` must be supplied explicitly —
+    raises a clear error otherwise) trigger types, matching
+    REQUIREMENTS.md FR15's "annual/event-driven" wording exactly.
+  - `list_upcoming_review_schedules(within_days=90)` and
+    `get_overdue_review_schedules()`: read-only queries feeding the
+    dashboard's new Governance section.
+  - `document_versions` CRUD: `create_document_version`,
+    `get_document_version`, `list_document_versions_for_entity`,
+    `get_latest_document_version` — the same table Phase 2's
+    `bcp_generator._record_bc_plan_provenance` already writes to, now
+    with a general-purpose CRUD entry point spanning every governed
+    entity type. Duplicate `version_label` for the same entity raises a
+    clear `DuplicateVersionLabelError`. `created_at` is set via
+    `clock_timestamp()` explicitly in the INSERT rather than relying on
+    the column's `DEFAULT CURRENT_TIMESTAMP`, to keep "most recent
+    version" ordering deterministic when multiple versions are created
+    within the same transaction (`CURRENT_TIMESTAMP` is transaction-start
+    time in Postgres, not wall-clock time).
+  - `record_maintenance_update(entity_type, entity_id, change_summary,
+    snapshot_json=None, version_label=None)`: FR15's maintenance-log
+    convenience wrapper, auto-incrementing a `major.minor` version label
+    (`"1.0"` → `"1.1"` → `"1.2"`, falling back to `"1.0"` if there is no
+    prior version or the latest label doesn't parse as `major.minor`)
+    unless an explicit `version_label` is given.
+
+- **One new migration**,
+  `schema/003_governance_test_report_entity_type.sql`: adds
+  `exercise_debrief` to `approval_entity_enum` — migration 002's original
+  4-value enum (`bia_assessment`/`bc_plan`/`recovery_strategy`/
+  `crisis_management_plan`) had no value covering FR15's explicit "test
+  reports" maintenance-log requirement. A standalone single-statement
+  `ALTER TYPE ... ADD VALUE IF NOT EXISTS` file, kept separate from any
+  other DDL per Postgres's restriction on that statement running inside a
+  larger transaction alongside other statements that might use the new
+  value. Every column Phase 5 needed on `sign_off_approvals`/
+  `document_review_schedule`/`document_versions` was already fully
+  defined in migration 002 — no other schema change was needed. Note
+  appended to `schema/SCHEMA_REVIEW.md`. `docker-compose.yml` updated to
+  mount migration 003 alongside 001/002 in `docker-entrypoint-initdb.d`
+  order.
+
+- **`crisis_management_plan` entity_type — documented scope gap:**
+  accepted as a valid `entity_type` string (the enum value already
+  existed, unused until now) but has **no existence check** performed
+  against it — Phase 3 modeled crisis management as several tables
+  (`cmt_roles`, `escalation_triggers`, etc.) rather than one
+  `crisis_management_plan` row with a single PK, so there is no backing
+  table to validate an `entity_id` against. Documented explicitly in
+  `docs/governance_lifecycle.md` §1 rather than silently skipped.
+
+- **RBAC + audit logging:** reuses `bia_engine.require_role`/
+  `WRITE_ROLES`/`InsufficientRoleError` and `bia_engine.log_audit`
+  unchanged — no second pattern introduced, with the one deliberate,
+  documented exception noted above (tier-specific RBAC on
+  `submit_sign_off_decision`). `mcp_server.py` gained 19 new FastMCP
+  tools (98 total, version bumped `0.4.0` → `0.5.0`).
+
+**Tests (`tests/test_governance.py`, 47 new tests, reusing the shared
+`conn`/`org`/`activity` fixtures from `tests/conftest.py` plus new local
+`bia`/`process_owner_user`/`top_management_user` fixtures) — full suite
+now 138/138 passing (91 pre-existing + 47 new) against a live Postgres
+instance via docker-compose:**
+
+- `create_sign_off_chain`: default 2-tier and custom-tier creation;
+  unrecognized `entity_type`/unknown `entity_id` error cases; duplicate-
+  chain creation raises a clear error; end-to-end coverage of the new
+  `exercise_debrief` entity type (confirming migration 003's enum value
+  works, not just at the DB level).
+- `get_sign_off_status`: `not_started`, `in_progress` → `approved`
+  progression, `rejected`, and `returned_for_revision` cases.
+- `submit_sign_off_decision`: sequential blocking (`SignOffSequenceError`
+  naming the blocking tier), successful tier-2-after-tier-1 progression,
+  invalid decision value rejected, unknown tier `NotFoundError`,
+  already-decided `SignOffAlreadyDecidedError`, wrong-role denial
+  (`InsufficientRoleError`), and `admin` able to decide any tier.
+- `restart_sign_off_chain`: full reset verified (all tiers back to
+  `pending`/`NULL` approver/decision_date), unknown-entity `NotFoundError`.
+- `compute_next_review_date`: simple annual, year-boundary crossing,
+  day-of-month clamping (non-leap and leap year), non-positive-frequency
+  rejection.
+- `document_review_schedule` CRUD: periodic auto-computed date,
+  event-driven explicit-date requirement (and its error case),
+  duplicate-schedule error, `get_review_schedule_for_entity` returning
+  `None`, update round-trip (plus no-field/unknown-field error cases),
+  `mark_review_completed` for both periodic (auto-advance) and
+  event-driven (explicit-next-date-required) schedules,
+  `list_upcoming_review_schedules`/`get_overdue_review_schedules` bucket
+  correctness across three distinct entities.
+- `document_versions`: create/get round-trip, duplicate-label error,
+  newest-first ordering + `get_latest_document_version`, `None` for a
+  never-versioned entity, `record_maintenance_update` auto-increment
+  (`1.0` → `1.1` → `1.2`) and explicit-label override.
+- `test_rbac_*` — same allow/deny pattern as Phase 1-4, covering
+  sign-off chain creation, review schedule creation, document version
+  creation, and an unknown-user sign-off decision.
+- `test_audit_log_written_for_*` — audit log rows written for
+  `sign_off_approvals` (chain create + decision submit),
+  `document_review_schedule`, and `document_versions`.
+
+See `TESTING.md` for exact run instructions (Phase 5 section to be added
+alongside this entry).
+
+**Dashboard (demo-facing, static export — extended, not rebuilt):**
+
+- `scripts/export_dashboard_data.py`: now also exports
+  `sign_off_approvals` (every tier row) and `sign_off_status_summary` (a
+  compact per-entity overall-status + current-tier view, using the same
+  heuristic as `governance.get_sign_off_status`), `review_schedules` plus
+  pre-split `upcoming_review_schedules`/`overdue_review_schedules`
+  buckets (90-day default window), and `document_versions` plus
+  `latest_version_by_entity` for a compact "current version" lookup.
+- `dashboard/index.html` + `app.js`: new **"Governance — Sign-Off
+  Status"** table (entity type/id, tier count, overall status pill,
+  current pending tier) and a new **"Governance — Document Review
+  Schedule"** section with separate Overdue/Upcoming-within-90-days
+  tables, each showing the current version label per entity.
+- **Unlike Phase 3's exclusion of `message_bank`/
+  `stakeholder_contact_matrices` content, sign-off comments and version
+  `snapshot_json` ARE included** in this export — sign-off decisions and
+  version history are the entire point of a governance dashboard view,
+  not incidental sensitive contact/comms content.
+- Verified end-to-end: ran `export_dashboard_data.py` against the live
+  test/demo Postgres instance and confirmed `dashboard/data.json`
+  contains all eight new top-level keys with the expected shape.
+
+**Documentation governance:**
+
+- This `CHANGELOG.md` entry.
+- `docs/governance_lifecycle.md` created — the single source-of-truth
+  for the Phase 5 sign-off state machine and review-cycle scheduler
+  logic, same depth as `docs/exercise_scenario_templates.md` /
+  `docs/crisis_communication_templates.md`.
+- `schema/SCHEMA_REVIEW.md` updated with a note on migration 003.
+- `DEVELOPMENT_PLAN.md` "Phase Status" table updated: Phase 5 marked
+  **Complete** with a summary; Phase 5 section under "Phased Build Plan"
+  expanded with a "Delivered" sub-section; "Next Steps" checklist items
+  ticked for Phases 4 and 5.
+- `README.md` updated: link to `docs/governance_lifecycle.md` added to
+  the Documents list.
+
+**Known limitations / deviations, disclosed honestly:**
+
+- No notifications/reminders when a review is due or a sign-off tier is
+  pending — out of scope per the brief's "lightweight state machine, no
+  enterprise workflow engine" instruction; querying
+  `get_overdue_review_schedules`/`get_current_pending_tier` is the
+  intended pull-based usage pattern instead.
+- No delegation/out-of-office handling for sign-off approvers — a tier's
+  `required_role` must be held by whichever user submits the decision;
+  there is no proxy/delegate mechanism.
+- No auto-detection of "the underlying document changed" to
+  auto-trigger a `restart_sign_off_chain` — left as an explicit human
+  action, since this module has no visibility into what "changed" means
+  for every entity type.
+- `crisis_management_plan` entity_type is accepted by every governance
+  function but has no existence check performed against it (no single
+  backing table for it in the current schema) — documented in
+  `docs/governance_lifecycle.md` §1, not silently skipped.
+
 ## 2026-09-22 — Phase 4 (Exercise & Test Planner) complete
 
 **Phase 4 — Exercise & Test Planner (`src/bcm_planner/exercise_planner.py` +

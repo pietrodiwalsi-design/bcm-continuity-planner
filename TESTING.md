@@ -34,7 +34,7 @@ set -a; . ./.env; set +a
 pytest tests/ -v
 ```
 
-Expected result at the time of writing: **91 passed** (14 Phase 1 `test_bia_engine.py` + 21 Phase 2 `test_bcp_generator.py` + 22 Phase 3 `test_crisis_management.py` + 34 Phase 4 `test_exercise_planner.py`).
+Expected result at the time of writing: **138 passed** (14 Phase 1 `test_bia_engine.py` + 21 Phase 2 `test_bcp_generator.py` + 22 Phase 3 `test_crisis_management.py` + 34 Phase 4 `test_exercise_planner.py` + 47 Phase 5 `test_governance.py`).
 
 ## What the suite covers
 
@@ -170,6 +170,56 @@ statement template set and escalation-path heuristic these tests verify.
 See `docs/exercise_scenario_templates.md` for the exact disruption
 scenario templates, inject templates, and storyboard validation rules
 these tests verify.
+
+### Phase 5 — `tests/test_governance.py` (47 tests)
+
+- `test_create_sign_off_chain_*` — default 2-tier and custom-tier chain
+  creation; unrecognized `entity_type` and unknown `entity_id` error
+  cases; duplicate-chain creation raises a clear error;
+  `test_create_sign_off_chain_for_exercise_debrief_entity_type` confirms
+  the new `exercise_debrief` `approval_entity_enum` value (migration 003)
+  works end to end, not just at the DB level.
+- `test_get_sign_off_status_*` — `not_started`, `in_progress` →
+  `approved` progression, `rejected`, and `returned_for_revision` cases.
+- `test_submit_sign_off_decision_*` — sequential blocking
+  (`SignOffSequenceError` naming the specific blocking tier), successful
+  tier-2-after-tier-1 progression, invalid decision value rejected,
+  unknown tier `NotFoundError`, already-decided
+  `SignOffAlreadyDecidedError`, wrong-role denial
+  (`InsufficientRoleError` — top management cannot decide the
+  process-owner tier), and confirmation `admin` can decide any tier.
+- `test_restart_sign_off_chain_*` — full reset verified (every tier back
+  to `pending`/`NULL` approver/decision_date), unknown-entity
+  `NotFoundError`.
+- `test_compute_next_review_date_*` — simple annual addition,
+  year-boundary crossing, day-of-month clamping (both a non-leap and a
+  leap-year February), non-positive-frequency rejection.
+- `test_create_review_schedule_*` / `test_update_review_schedule_*` /
+  `test_mark_review_completed_*` — periodic auto-computed
+  `next_review_date`, event-driven explicit-date requirement (and its
+  error case), duplicate-schedule error, `get_review_schedule_for_entity`
+  returning `None` for an absent schedule, update round-trip (plus
+  no-field/unknown-field error cases), and `mark_review_completed` for
+  both periodic (auto-advance) and event-driven
+  (explicit-next-date-required) schedules.
+- `test_list_upcoming_review_schedules_and_overdue` — a 3-entity fixture
+  set (soon/far/overdue) confirms the upcoming (within 90 days) and
+  overdue buckets each contain exactly the expected schedule.
+- `test_create_document_version_*` / `test_list_document_versions_*` /
+  `test_record_maintenance_update_*` — create/get round-trip,
+  duplicate-label error, newest-first ordering plus
+  `get_latest_document_version`, `None` for a never-versioned entity,
+  and `record_maintenance_update`'s auto-incrementing minor version
+  label (`"1.0"` → `"1.1"` → `"1.2"`) plus explicit-label override.
+- `test_rbac_*` — same allow/deny pattern as Phase 1-4, covering sign-off
+  chain creation, review schedule creation, document version creation,
+  and an unknown-user sign-off decision attempt.
+- `test_audit_log_written_for_*` — audit log rows written for
+  `sign_off_approvals` (both chain creation and decision submission),
+  `document_review_schedule`, and `document_versions`.
+
+See `docs/governance_lifecycle.md` for the exact sign-off state machine
+and review-cycle scheduler rules these tests verify.
 
 ## Test isolation
 

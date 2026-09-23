@@ -319,6 +319,82 @@ function renderCapaTable(data) {
   }
 }
 
+function renderSignOffTable(data) {
+  const tbody = document.querySelector("#sign-off-table tbody");
+  tbody.innerHTML = "";
+  const summaries = data.sign_off_status_summary || [];
+  if (!summaries.length) {
+    document.getElementById("sign-off-empty").style.display = "block";
+    return;
+  }
+  document.getElementById("sign-off-empty").style.display = "none";
+
+  const statusPillClass = {
+    not_started: "pill-muted", in_progress: "pill-muted",
+    approved: "pill-green", rejected: "pill-red", returned_for_revision: "pill-red",
+  };
+
+  for (const summary of summaries) {
+    const tr = el("tr");
+    tr.appendChild(el("td", { text: summary.entity_type }));
+    tr.appendChild(el("td", { text: summary.entity_id }));
+    tr.appendChild(el("td", { text: String(summary.tier_count) }));
+
+    const statusCell = el("td");
+    statusCell.appendChild(el("span", {
+      class: `pill ${statusPillClass[summary.overall_status] || "pill-muted"}`,
+      text: summary.overall_status,
+    }));
+    tr.appendChild(statusCell);
+
+    tr.appendChild(el("td", {
+      text: summary.current_tier_required_role
+        ? `Tier ${summary.current_tier_sequence_order} — ${summary.current_tier_required_role}`
+        : "—",
+    }));
+
+    tbody.appendChild(tr);
+  }
+}
+
+function renderReviewScheduleRows(tbodySelector, emptyId, schedules, latestVersionByEntity) {
+  const tbody = document.querySelector(tbodySelector);
+  tbody.innerHTML = "";
+  if (!schedules.length) {
+    document.getElementById(emptyId).style.display = "block";
+    return;
+  }
+  document.getElementById(emptyId).style.display = "none";
+
+  for (const schedule of schedules) {
+    const tr = el("tr");
+    tr.appendChild(el("td", { text: schedule.entity_type }));
+    tr.appendChild(el("td", { text: schedule.entity_id }));
+    tr.appendChild(el("td", { text: schedule.next_review_date }));
+    tr.appendChild(el("td", { text: schedule.review_trigger_type }));
+
+    const key = `${schedule.entity_type}:${schedule.entity_id}`;
+    const latest = (latestVersionByEntity || {})[key];
+    tr.appendChild(el("td", {
+      text: latest ? latest.version_label : "—",
+    }));
+
+    tbody.appendChild(tr);
+  }
+}
+
+function renderGovernanceSections(data) {
+  renderSignOffTable(data);
+  renderReviewScheduleRows(
+    "#review-overdue-table tbody", "review-overdue-empty",
+    data.overdue_review_schedules || [], data.latest_version_by_entity,
+  );
+  renderReviewScheduleRows(
+    "#review-upcoming-table tbody", "review-upcoming-empty",
+    data.upcoming_review_schedules || [], data.latest_version_by_entity,
+  );
+}
+
 function render(data) {
   renderHierarchy(data);
   renderBiaTable(data);
@@ -328,6 +404,7 @@ function render(data) {
   renderEscalationTable(data);
   renderExercisesTable(data);
   renderCapaTable(data);
+  renderGovernanceSections(data);
 }
 
 loadData();

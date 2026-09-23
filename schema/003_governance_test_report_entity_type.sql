@@ -1,0 +1,32 @@
+-- ============================================================================
+-- Schema Addition: extend approval_entity_enum to cover test/exercise reports
+-- Rationale: closes a gap identified while building Phase 5 (Governance &
+-- Lifecycle) against FR15 ("... log all maintenance updates across BIA
+-- parameters, BCPs, CMPs, and test reports"). The polymorphic entity_type
+-- column shared by sign_off_approvals / document_review_schedule /
+-- document_versions (schema/002_rbac_approvals_review_additions.sql) only
+-- covered bia_assessment / bc_plan / recovery_strategy / crisis_management_plan
+-- — there was no value representing a test/exercise report, so an
+-- exercise_debriefs row (the "test report" produced by Phase 4's exercise
+-- planner) had no way to get a document_review_schedule or document_versions
+-- entry. 001 and 002 do not otherwise need any change for Phase 5 — the
+-- sign-off workflow (sign_off_approvals) and review/version tables
+-- (document_review_schedule, document_versions) already exist and are fully
+-- sufficient for FR14 and the rest of FR15; this migration only widens the
+-- existing enum by one value.
+--
+-- Depends on: 001_core_schema.sql, 002_rbac_approvals_review_additions.sql
+-- (extends approval_entity_enum, created in 002).
+--
+-- Note: PostgreSQL's ALTER TYPE ... ADD VALUE cannot run inside the same
+-- transaction that goes on to use the new value, and (pre-PG12) could not
+-- run inside an explicit transaction block at all. This file contains a
+-- single top-level statement for exactly that reason — do not wrap it in
+-- BEGIN/COMMIT, and do not add further statements using the new value to
+-- this same file. Applies cleanly via docker-entrypoint-initdb.d (each
+-- mounted .sql file is executed by psql in its own implicit
+-- autocommit-per-statement session) or via a plain `psql -f` run against an
+-- existing database.
+-- ============================================================================
+
+ALTER TYPE approval_entity_enum ADD VALUE IF NOT EXISTS 'exercise_debrief';
