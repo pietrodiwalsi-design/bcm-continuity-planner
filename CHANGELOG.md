@@ -4,6 +4,58 @@ All notable changes to this project are documented in this file. Dates are
 in `YYYY-MM-DD` format. This file is the chronological record referenced by
 the Documentation Governance rules in `DEVELOPMENT_PLAN.md`.
 
+## 2026-09-23 — Web workshop tool (second deliverable, alongside the MCP server)
+
+**New public web workshop tool (`src/bcm_planner/web/`), deployed on
+Render — a separate, additional way to use the same `bia_engine.py` /
+`bcp_generator.py` / `crisis_management.py` business logic already used
+by the FastMCP server, not a replacement for it:**
+
+- **Server-rendered FastAPI + Jinja2 app** (`src/bcm_planner/web/app.py`)
+  for live client workshops: create a workshop session, fill in a BIA
+  (business units → processes → activities → assessments → gap analysis
+  → recovery strategies → resources), generate a draft BCP
+  (`bcp_generator.generate_bcp_draft_from_bia` +
+  `generate_bau_return_phases`, reused as-is, not duplicated), and
+  create a CMT roster + escalation triggers
+  (`crisis_management.create_cmt_role` /
+  `create_escalation_trigger`, also reused as-is).
+- **Tenant isolation with no login system:** each workshop client is one
+  `organizations` row; a new `web_workshop_sessions` table
+  (`schema/004_web_workshop_sessions.sql`) maps an unguessable
+  `secrets.token_urlsafe()` session token to that organization. Every
+  route resolves the token to an `organization_id` and then scopes every
+  entity lookup through new `src/bcm_planner/web/tenancy.py` helpers
+  (`get_activity_scoped`, `get_bia_assessment_scoped`,
+  `get_recovery_strategy_scoped`, `get_bc_plan_scoped`,
+  `get_cmt_role_scoped`, `get_escalation_trigger_scoped`, etc.) that
+  raise `TenantMismatchError` (mapped to HTTP 404) on any cross-tenant
+  access attempt. See `docs/web_workshop_tool.md` for the full model.
+- **PDF-only export** (WeasyPrint, `src/bcm_planner/web/pdf_export.py`)
+  for the BIA report, the generated BCP, and the CMT plan — no Word/docx
+  output, per the brief.
+- **New tests:** `tests/test_web_tenancy.py` (11 tests, unit-level
+  proof that every `get_*_scoped` helper rejects a wrong-organization
+  lookup) and `tests/test_web_app.py` (7 tests, HTTP-level via FastAPI's
+  `TestClient`: session creation, a full BIA→BCP→CMT create+view flow,
+  all 3 PDF exports validated as non-empty `%PDF-` files, and an explicit
+  end-to-end tenant-isolation test proving organization A's session
+  token can never read, write, or export organization B's data through
+  any route). Full suite: **156 passed** (138 existing + 18 new).
+- **Deployment:** new `Dockerfile` (multi-stage, installs the new
+  `web` optional-dependency group from `pyproject.toml` — FastAPI,
+  Jinja2, uvicorn, WeasyPrint — plus the OS-level Pango/Cairo/GDK-Pixbuf
+  packages WeasyPrint needs for text shaping) and `render.yaml` (Docker
+  web service + managed Postgres, wired via Render's `fromDatabase`
+  env-var injection). New `scripts/run_migrations.py` — an idempotent
+  migration runner used as the Docker image's entrypoint step, since
+  Render's managed Postgres has no `docker-entrypoint-initdb.d`
+  equivalent for auto-applying `schema/*.sql` on first boot the way
+  local `docker-compose.yml` does.
+- **Docs:** new `docs/web_workshop_tool.md`; `README.md` updated with a
+  "Two access modes" section; `.env.example` updated with the `PORT`
+  var used by the web app.
+
 ## 2026-09-23 — Phase 5 (Governance & Lifecycle) complete
 
 **Phase 5 — Governance & Lifecycle (`src/bcm_planner/governance.py`,

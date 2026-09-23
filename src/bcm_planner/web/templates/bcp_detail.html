@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}{{ plan.plan_title }}{% endblock %}
+{% block content %}
+<div class="card">
+    <h1>{{ plan.plan_title }}</h1>
+    <p class="muted">{{ organization.name }} &middot; {{ plan.plan_tier }} &middot; v{{ plan.version }} &middot; {{ plan.status }}</p>
+    <a class="btn" href="/session/{{ session_token }}/bcp/{{ plan.plan_id }}/export.pdf">Download BCP PDF</a>
+    <a class="btn btn-secondary" href="/session/{{ session_token }}/bcp">Back to BCP list</a>
+</div>
+
+<div class="card">
+    <h2>Invocation criteria</h2>
+    <p>{{ plan.invocation_criteria }}</p>
+    {% if plan.alternate_facility_details %}
+    <h2>Alternate facility details</h2>
+    <p>{{ plan.alternate_facility_details }}</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h2>Action steps</h2>
+    {% if action_steps %}
+    <table><thead><tr><th>#</th><th>Role</th><th>Action</th><th>T+ (min)</th></tr></thead><tbody>
+    {% for s in action_steps %}
+    <tr><td>{{ s.step_number }}</td><td>{{ s.responsible_role }}</td><td>{{ s.action_title }}</td><td>{{ s.timeframe_offset_minutes if s.timeframe_offset_minutes is not none else "—" }}</td></tr>
+    {% endfor %}
+    </tbody></table>
+    {% else %}<p class="empty-note muted">No action steps.</p>{% endif %}
+</div>
+
+<div class="card">
+    <h2>Return-to-BAU phases</h2>
+    {% if bau_phases %}
+    <table><thead><tr><th>Phase</th><th>Title</th><th>Restoration type</th></tr></thead><tbody>
+    {% for p in bau_phases %}
+    <tr><td>{{ p.phase_number }}</td><td>{{ p.title }}</td><td>{{ p.restoration_type }}</td></tr>
+    {% endfor %}
+    </tbody></table>
+    {% else %}<p class="empty-note muted">No BAU return phases.</p>{% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}BCM Continuity Planner — Start a Workshop{% endblock %}
+{% block content %}
+<div class="card">
+    <h1>Start a new BCM workshop session</h1>
+    <p class="muted">
+        Each workshop client becomes one isolated <code>organizations</code> row.
+        A unique access link is generated below — bookmark it for the duration
+        of the session. See <a href="https://github.com/pietrodiwalsi-design/bcm-continuity-planner/blob/main/docs/web_workshop_tool.md">docs/web_workshop_tool.md</a>
+        for the tenant-isolation model.
+    </p>
+    <form class="inline" method="post" action="/session/create" style="flex-direction: column; align-items: stretch;">
+        <div>
+            <label for="organization_name">Client / organization name</label>
+            <input type="text" id="organization_name" name="organization_name" required style="width: 100%;">
+        </div>
+        <div>
+            <label for="industry">Industry (optional)</label>
+            <input type="text" id="industry" name="industry" style="width: 100%;">
+        </div>
+        <div>
+            <label for="bcms_scope_description">BCMS scope description</label>
+            <textarea id="bcms_scope_description" name="bcms_scope_description" required style="width: 100%;" rows="2"></textarea>
+        </div>
+        <div>
+            <label for="workshop_label">Workshop label (optional, for your own reference)</label>
+            <input type="text" id="workshop_label" name="workshop_label" style="width: 100%;">
+        </div>
+        <div>
+            <button type="submit">Create workshop session</button>
+        </div>
+    </form>
+</div>
+
+{% if new_session %}
+<div class="card">
+    <h2>Workshop session created</h2>
+    <p>Access link for <strong>{{ new_session.organization.name }}</strong>:</p>
+    <div class="token-box">{{ base_url }}/session/{{ new_session.session_token }}/</div>
+    <p class="muted">Open this link to continue the workshop. It is only ever scoped to this one organization's data.</p>
+    <p><a class="btn" href="/session/{{ new_session.session_token }}/">Go to workshop dashboard</a></p>
+</div>
+{% endif %}
+
+<div class="card">
+    <h2>Have an existing access link?</h2>
+    <p class="muted">Paste the session token (the part after <code>/session/</code>) to jump back in.</p>
+    <form class="inline" method="get" action="/session/goto">
+        <div>
+            <label for="token">Session token</label>
+            <input type="text" id="token" name="token" required>
+        </div>
+        <button type="submit">Go</button>
+    </form>
+</div>
+{% endblock %}

@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}CMT — {{ organization.name }}{% endblock %}
+{% block content %}
+<div class="card">
+    <h1>Crisis Management Team</h1>
+    <p class="muted">{{ organization.name }}</p>
+    <a class="btn" href="/session/{{ session_token }}/cmt/export.pdf">Download CMT plan PDF</a>
+</div>
+
+<div class="card">
+    <h2>Add CMT role</h2>
+    <form class="inline" method="post" action="/session/{{ session_token }}/cmt/role">
+        <div><label>Role name</label><input type="text" name="role_name" required placeholder="Crisis Management Team Leader"></div>
+        <div><label>Primary assignee</label><input type="text" name="primary_assignee_name" required></div>
+        <div><label>Phone</label><input type="text" name="primary_assignee_phone" required></div>
+        <div><label>Email</label><input type="email" name="primary_assignee_email" required></div>
+        <div><label>Alternate assignee</label><input type="text" name="alternate_assignee_name"></div>
+        <div><label>Alternate phone</label><input type="text" name="alternate_assignee_phone"></div>
+        <div><label>Key responsibilities</label><textarea name="key_responsibilities" required></textarea></div>
+        <button type="submit">Add role</button>
+    </form>
+    {% if cmt_roles %}
+    <table><thead><tr><th>Role</th><th>Primary</th><th>Contact</th></tr></thead><tbody>
+    {% for r in cmt_roles %}
+    <tr><td>{{ r.role_name }}</td><td>{{ r.primary_assignee_name }}</td><td>{{ r.primary_assignee_phone }} / {{ r.primary_assignee_email }}</td></tr>
+    {% endfor %}
+    </tbody></table>
+    {% else %}<p class="empty-note muted">No CMT roles yet.</p>{% endif %}
+</div>
+
+<div class="card">
+    <h2>Add escalation trigger</h2>
+    <form class="inline" method="post" action="/session/{{ session_token }}/cmt/trigger">
+        <div><label>Severity</label>
+            <select name="severity_level">
+                <option value="minimal">minimal</option>
+                <option value="minor">minor</option>
+                <option value="moderate">moderate</option>
+                <option value="major">major</option>
+                <option value="severe">severe</option>
+                <option value="catastrophic">catastrophic</option>
+            </select>
+        </div>
+        <div><label>Incident condition</label><input type="text" name="incident_condition" required></div>
+        <div><label>Notification timeframe (min)</label><input type="number" name="notification_timeframe_minutes" required></div>
+        <div><label>Required action</label><input type="text" name="required_action" required></div>
+        <button type="submit">Add trigger</button>
+    </form>
+    {% if escalation_triggers %}
+    <table><thead><tr><th>Severity</th><th>Condition</th><th>Timeframe (min)</th></tr></thead><tbody>
+    {% for t in escalation_triggers %}
+    <tr><td>{{ t.severity_level }}</td><td>{{ t.incident_condition }}</td><td>{{ t.notification_timeframe_minutes }}</td></tr>
+    {% endfor %}
+    </tbody></table>
+    {% else %}<p class="empty-note muted">No escalation triggers yet.</p>{% endif %}
+</div>
+{% endblock %}

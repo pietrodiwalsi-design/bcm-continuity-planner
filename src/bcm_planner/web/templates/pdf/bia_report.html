@@ -1,0 +1,100 @@
+{% extends "_base.html" %}
+{% block title %}Business Impact Analysis — {{ organization.name }}{% endblock %}
+{% block content %}
+<h1>Business Impact Analysis</h1>
+<div class="meta">
+    Organization: <strong>{{ organization.name }}</strong>{% if organization.industry %} &middot; {{ organization.industry }}{% endif %}<br>
+    BCMS Scope: {{ organization.bcms_scope_description }}
+</div>
+
+{% if not activities %}
+<p class="empty-note">No activities with BIA data have been recorded for this workshop yet.</p>
+{% endif %}
+
+{% for entry in activities %}
+{% set activity = entry.activity %}
+<h2>{{ activity.name }}</h2>
+<div class="meta">Owner: {{ activity.activity_owner }}{% if activity.description %} &middot; {{ activity.description }}{% endif %}</div>
+
+<h3>MTPD / RTO / RPO / MBCO Assessments</h3>
+{% if entry.bia_assessments %}
+<table>
+<thead><tr><th>Assessor</th><th>Date</th><th>MTPD (h)</th><th>RTO (h)</th><th>RPO (h)</th><th>MBCO %</th><th>Status</th></tr></thead>
+<tbody>
+{% for bia in entry.bia_assessments %}
+<tr>
+<td>{{ bia.assessor_name }}</td>
+<td>{{ bia.assessment_date }}</td>
+<td>{{ bia.mtpd_hours }}</td>
+<td>{{ bia.rto_hours }}</td>
+<td>{{ bia.rpo_hours if bia.rpo_hours is not none else "—" }}</td>
+<td>{{ bia.mbco_percentage }}</td>
+<td>{{ bia.status }}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+{% else %}
+<p class="empty-note">No BIA assessment recorded for this activity yet.</p>
+{% endif %}
+
+<h3>Gap Analysis</h3>
+{% if entry.gap_analyses %}
+<table>
+<thead><tr><th>Current Recovery Capability (h)</th><th>Target RTO (h)</th><th>Gap (h)</th><th>SPOF Identified</th><th>Risk Summary</th></tr></thead>
+<tbody>
+{% for gap in entry.gap_analyses %}
+<tr>
+<td>{{ gap.current_recovery_capability_hours }}</td>
+<td>{{ gap.target_rto_hours }}</td>
+<td>
+    {% if gap.gap_hours >= 0 %}<span class="badge badge-closed">Closed ({{ gap.gap_hours }}h)</span>
+    {% else %}<span class="badge badge-open">Open ({{ gap.gap_hours }}h)</span>{% endif %}
+</td>
+<td>{{ gap.identified_spof or "—" }}</td>
+<td>{{ gap.risk_summary }}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+{% else %}
+<p class="empty-note">No gap analysis recorded for this activity yet.</p>
+{% endif %}
+
+<h3>Recovery Strategies</h3>
+{% if entry.recovery_strategies %}
+<table>
+<thead><tr><th>Category</th><th>Strategy Name</th><th>Selected</th><th>Description</th></tr></thead>
+<tbody>
+{% for strategy in entry.recovery_strategies %}
+<tr>
+<td>{{ strategy.category }}</td>
+<td>{{ strategy.strategy_name }}</td>
+<td>{% if strategy.is_selected_option %}<span class="badge badge-selected">Selected</span>{% else %}—{% endif %}</td>
+<td>{{ strategy.description }}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+{% else %}
+<p class="empty-note">No recovery strategy recorded for this activity yet.</p>
+{% endif %}
+
+{% if entry.spofs %}
+<h3>Single Points of Failure</h3>
+<table>
+<thead><tr><th>Resource</th><th>Type</th><th>Dependency Type</th></tr></thead>
+<tbody>
+{% for spof in entry.spofs %}
+<tr>
+<td class="spof">{{ spof.resource_name }}</td>
+<td>{{ spof.resource_type }}</td>
+<td>{{ spof.dependency_type or "—" }}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+{% endif %}
+
+{% endfor %}
+{% endblock %}

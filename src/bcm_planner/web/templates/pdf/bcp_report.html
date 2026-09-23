@@ -1,0 +1,61 @@
+{% extends "_base.html" %}
+{% block title %}Business Continuity Plan — {{ plan.plan_title }}{% endblock %}
+{% block content %}
+<h1>Business Continuity Plan</h1>
+<div class="meta">
+    Organization: <strong>{{ organization.name }}</strong><br>
+    Plan tier: {{ plan.plan_tier }} &middot; Version: {{ plan.version }} &middot;
+    Status: <span class="badge badge-draft">{{ plan.status }}</span>
+</div>
+
+<h2>{{ plan.plan_title }}</h2>
+<div class="meta">Plan Owner: {{ plan.plan_owner }}</div>
+
+<h3>Invocation Criteria</h3>
+<p>{{ plan.invocation_criteria }}</p>
+
+{% if plan.alternate_facility_details %}
+<h3>Alternate Facility Details</h3>
+<p>{{ plan.alternate_facility_details }}</p>
+{% endif %}
+
+<h3>Action Steps</h3>
+{% if action_steps %}
+<table>
+<thead><tr><th>#</th><th>Responsible Role</th><th>Action</th><th>Instructions</th><th>T+ (min)</th></tr></thead>
+<tbody>
+{% for step in action_steps %}
+<tr>
+<td>{{ step.step_number }}</td>
+<td>{{ step.responsible_role }}</td>
+<td>{{ step.action_title }}</td>
+<td>{{ step.detailed_instructions }}</td>
+<td>{{ step.timeframe_offset_minutes if step.timeframe_offset_minutes is not none else "—" }}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+{% else %}
+<p class="empty-note">No action steps recorded for this plan yet.</p>
+{% endif %}
+
+<h3>Return-to-BAU Phases</h3>
+{% if bau_phases %}
+<table>
+<thead><tr><th>Phase</th><th>Title</th><th>Restoration Type</th><th>Validation Criteria</th><th>Action Steps</th></tr></thead>
+<tbody>
+{% for phase in bau_phases %}
+<tr>
+<td>{{ phase.phase_number }}</td>
+<td>{{ phase.title }}</td>
+<td>{{ phase.restoration_type }}</td>
+<td>{{ phase.validation_criteria }}</td>
+<td>{{ phase.action_steps }}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+{% else %}
+<p class="empty-note">No Return-to-BAU phases recorded for this plan yet.</p>
+{% endif %}
+{% endblock %}

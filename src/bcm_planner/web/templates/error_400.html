@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Request error{% endblock %}
+{% block content %}
+<div class="card">
+    <h1>Could not complete that request</h1>
+    <p>{{ detail }}</p>
+    <p><a class="btn btn-secondary" href="javascript:history.back()">Go back</a></p>
+</div>
+{% endblock %}

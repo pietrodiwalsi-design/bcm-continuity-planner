@@ -51,8 +51,9 @@ The original MVP proposal (see `DEVELOPMENT_PLAN.md` v1) suggested SQLite/JSON t
 - `001_core_schema.sql` — Peter's original proposal, unmodified.
 - `002_rbac_approvals_review_additions.sql` — RBAC, sign-off workflow, review scheduler, version history additions. Depends on `001` (uses the `uuid-ossp` extension created there).
 - `003_governance_test_report_entity_type.sql` — Phase 5 (Governance & Lifecycle) addition. Adds `exercise_debrief` to `approval_entity_enum`. Depends on `002` (the enum is defined there).
+- `004_web_workshop_sessions.sql` — Web workshop tool addition (a separate deliverable, not a numbered phase — see `docs/web_workshop_tool.md`). Adds `web_workshop_sessions` (maps a per-organization access-code token to `organization_id` + a bootstrap admin `application_users` row) and `schema_migrations` (a tracking table used by `scripts/run_migrations.py` so migrations can be applied idempotently on Render's managed Postgres, which has no `docker-entrypoint-initdb.d` equivalent). Depends on `001` (`organizations`, `application_users`).
 
-Apply in order: `001` then `002` then `003`.
+Apply in order: `001` then `002` then `003` then `004`.
 
 ## Phase 5 addition (2026-09-23): `exercise_debrief` added to `approval_entity_enum`
 

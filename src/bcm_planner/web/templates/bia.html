@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+{% block title %}BIA — {{ organization.name }}{% endblock %}
+{% block content %}
+<div class="card">
+    <h1>Business Impact Analysis</h1>
+    <p class="muted">{{ organization.name }}</p>
+    <a class="btn" href="/session/{{ session_token }}/bia/export.pdf">Download BIA PDF</a>
+</div>
+
+<div class="card">
+    <h2>1. Business unit</h2>
+    <form class="inline" method="post" action="/session/{{ session_token }}/bia/unit">
+        <div><label>Name</label><input type="text" name="name" required></div>
+        <button type="submit">Add business unit</button>
+    </form>
+    {% if units %}
+    <table><thead><tr><th>Name</th><th>Code</th></tr></thead><tbody>
+    {% for u in units %}<tr><td>{{ u.name }}</td><td>{{ u.code or "—" }}</td></tr>{% endfor %}
+    </tbody></table>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h2>2. Business process</h2>
+    {% if units %}
+    <form class="inline" method="post" action="/session/{{ session_token }}/bia/process">
+        <div><label>Unit</label>
+            <select name="unit_id" required>
+            {% for u in units %}<option value="{{ u.unit_id }}">{{ u.name }}</option>{% endfor %}
+            </select>
+        </div>
+        <div><label>Process name</label><input type="text" name="name" required></div>
+        <div><label>Process owner</label><input type="text" name="process_owner" required></div>
+        <button type="submit">Add process</button>
+    </form>
+    {% else %}<p class="empty-note muted">Add a business unit first.</p>{% endif %}
+    {% if processes %}
+    <table><thead><tr><th>Name</th><th>Owner</th></tr></thead><tbody>
+    {% for p in processes %}<tr><td>{{ p.name }}</td><td>{{ p.process_owner }}</td></tr>{% endfor %}
+    </tbody></table>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h2>3. Activity</h2>
+    {% if processes %}
+    <form class="inline" method="post" action="/session/{{ session_token }}/bia/activity">
+        <div><label>Process</label>
+            <select name="process_id" required>
+            {% for p in processes %}<option value="{{ p.process_id }}">{{ p.name }}</option>{% endfor %}
+            </select>
+        </div>
+        <div><label>Activity name</label><input type="text" name="name" required></div>
+        <div><label>Activity owner</label><input type="text" name="activity_owner" required></div>
+        <button type="submit">Add activity</button>
+    </form>
+    {% else %}<p class="empty-note muted">Add a business process first.</p>{% endif %}
+</div>
+
+{% for entry in activity_details %}
+<div class="card">
+    <h2>{{ entry.activity.name }} <span class="muted">({{ entry.activity.process_name }})</span></h2>
+    <p class="muted">Owner: {{ entry.activity.activity_owner }}</p>
+
+    <h3>MTPD / RTO / RPO / MBCO</h3>
+    <form class="inline" method="post" action="/session/{{ session_token }}/bia/assessment">
+        <input type="hidden" name="activity_id" value="{{ entry.activity.activity_id }}">
+        <div><label>Assessor</label><input type="text" name="assessor_name" required></div>
+        <div><label>MTPD (h)</label><input type="number" name="mtpd_hours" required min="1"></div>
+        <div><label>RTO (h)</label><input type="number" name="rto_hours" required min="0"></div>
+        <div><label>RPO (h)</label><input type="number" name="rpo_hours" min="0"></div>
+        <div><label>MBCO %</label><input type="number" step="0.01" name="mbco_percentage" value="100"></div>
+        <button type="submit">Record assessment</button>
+    </form>
+    {% if entry.bia_assessments %}
+    <table><thead><tr><th>Assessor</th><th>MTPD</th><th>RTO</th><th>RPO</th><th>MBCO%</th></tr></thead><tbody>
+    {% for b in entry.bia_assessments %}
+    <tr><td>{{ b.assessor_name }}</td><td>{{ b.mtpd_hours }}</td><td>{{ b.rto_hours }}</td><td>{{ b.rpo_hours or "—" }}</td><td>{{ b.mbco_percentage }}</td></tr>
+    {% endfor %}
+    </tbody></table>
+
+    <h3>Gap analysis</h3>
+    <form class="inline" method="post" action="/session/{{ session_token }}/bia/gap">
+        <input type="hidden" name="bia_id" value="{{ entry.bia_assessments[0].bia_id }}">
+        <div><label>Current recovery capability (h)</label><input type="number" name="current_recovery_capability_hours" required></div>
+        <div><label>Target RTO (h)</label><input type="number" name="target_rto_hours" required></div>
+        <div><label>Risk summary</label><input type="text" name="risk_summary" required></div>
+        <div><label>Identified SPOF (optional)</label><input type="text" name="identified_spof"></div>
+        <button type="submit">Record gap analysis</button>
+    </form>
+    {% if entry.gap_analyses %}
+    <table><thead><tr><th>Current (h)</th><th>Target (h)</th><th>Gap</th><th>Risk</th></tr></thead><tbody>
+    {% for g in entry.gap_analyses %}
+    <tr><td>{{ g.current_recovery_capability_hours }}</td><td>{{ g.target_rto_hours }}</td>
+    <td>{% if g.gap_hours >= 0 %}<span class="badge badge-closed">{{ g.gap_hours }}h</span>{% else %}<span class="badge badge-open">{{ g.gap_hours }}h</span>{% endif %}</td>
+    <td>{{ g.risk_summary }}</td></tr>
+    {% endfor %}
+    </tbody></table>
+    {% endif %}
+
+    <h3>Recovery strategy</h3>
+    <form class="inline" method="post" action="/session/{{ session_token }}/bia/strategy">
+        <input type="hidden" name="bia_id" value="{{ entry.bia_assessments[0].bia_id }}">
+        <div><label>Category</label>
+            <select name="category">
+                <option value="active_active">active_active</option>
+                <option value="hot_standby">hot_standby</option>
+                <option value="warm_standby">warm_standby</option>
+                <option value="cold_site">cold_site</option>
+                <option value="work_from_home">work_from_home</option>
+                <option value="manual_workaround">manual_workaround</option>
+            </select>
+        </div>
+        <div><label>Strategy name</label><input type="text" name="strategy_name" required></div>
+        <div><label>Description</label><input type="text" name="description" required></div>
+        <div><label><input type="checkbox" name="is_selected_option" value="1"> Selected option</label></div>
+        <button type="submit">Add strategy</button>
+    </form>
+    {% if entry.recovery_strategies %}
+    <table><thead><tr><th>Category</th><th>Name</th><th>Selected</th></tr></thead><tbody>
+    {% for s in entry.recovery_strategies %}
+    <tr><td>{{ s.category }}</td><td>{{ s.strategy_name }}</td><td>{% if s.is_selected_option %}<span class="badge badge-selected">Yes</span>{% else %}—{% endif %}</td></tr>
+    {% endfor %}
+    </tbody></table>
+    {% endif %}
+    {% else %}
+    <p class="empty-note muted">No BIA assessment recorded yet — record one above first.</p>
+    {% endif %}
+
+    <h3>Resource dependency</h3>
+    <form class="inline" method="post" action="/session/{{ session_token }}/bia/resource">
+        <input type="hidden" name="activity_id" value="{{ entry.activity.activity_id }}">
+        <div><label>Resource name</label><input type="text" name="resource_name" required></div>
+        <div><label>Type</label>
+            <select name="resource_type">
+                <option value="personnel">personnel</option>
+                <option value="technology">technology</option>
+                <option value="facility">facility</option>
+                <option value="equipment">equipment</option>
+                <option value="supplier">supplier</option>
+            </select>
+        </div>
+        <div><label>Min qty</label><input type="number" name="minimum_quantity_required" value="1"></div>
+        <div><label><input type="checkbox" name="is_single_point_of_failure" value="1"> Single point of failure</label></div>
+        <button type="submit">Add resource</button>
+    </form>
+    {% if entry.spofs %}
+    <p><strong>SPOFs detected:</strong>
+    {% for spof in entry.spofs %}<span class="badge badge-open">{{ spof.resource_name }}</span>{% endfor %}
+    </p>
+    {% endif %}
+</div>
+{% endfor %}
+{% endblock %}
