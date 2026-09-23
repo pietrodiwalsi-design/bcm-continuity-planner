@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}BCP — {{ organization.name }}{% endblock %}
+{% block content %}
+<div class="card">
+    <h1>Business Continuity Plans</h1>
+    <p class="muted">{{ organization.name }}</p>
+</div>
+
+<div class="card">
+    <h2>Generate a new BCP draft</h2>
+    {% if generatable %}
+    <form class="inline" method="post" action="/session/{{ session_token }}/bcp/generate">
+        <div>
+            <label>BIA (with a selected recovery strategy)</label>
+            <select name="bia_id" required>
+            {% for g in generatable %}
+                <option value="{{ g.bia.bia_id }}">
+                    {{ g.activity.name }} — {{ g.strategy.category }} ({{ g.strategy.strategy_name }})
+                </option>
+            {% endfor %}
+            </select>
+        </div>
+        <button type="submit">Generate BCP draft</button>
+    </form>
+    {% else %}
+    <p class="empty-note muted">
+        No BIA has a selected recovery strategy yet. Go to the
+        <a href="/session/{{ session_token }}/bia">BIA workspace</a> and select a recovery
+        strategy for an activity first.
+    </p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h2>Generated plans</h2>
+    {% if bc_plans %}
+    <table><thead><tr><th>Title</th><th>Tier</th><th>Version</th><th>Status</th><th></th></tr></thead><tbody>
+    {% for plan in bc_plans %}
+    <tr>
+        <td>{{ plan.plan_title }}</td>
+        <td>{{ plan.plan_tier }}</td>
+        <td>{{ plan.version }}</td>
+        <td>{{ plan.status }}</td>
+        <td><a class="btn btn-secondary" href="/session/{{ session_token }}/bcp/{{ plan.plan_id }}">View</a></td>
+    </tr>
+    {% endfor %}
+    </tbody></table>
+    {% else %}
+    <p class="empty-note muted">No plans generated yet.</p>
+    {% endif %}
+</div>
+{% endblock %}

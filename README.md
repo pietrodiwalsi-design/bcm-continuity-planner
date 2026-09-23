@@ -142,6 +142,14 @@ debrief narrative text are intentionally not shown in the demo dashboard.
 See [TESTING.md](./TESTING.md) for full test instructions and
 [DEVELOPMENT_PLAN.md](./DEVELOPMENT_PLAN.md) for architecture and phase status.
 
+## Two access modes
+
+This repo now ships two separate ways to use the same underlying
+`bia_engine.py` / `bcp_generator.py` / `crisis_management.py` logic:
+
+1. **MCP server** (`bcm-mcp`, above) — stdio transport for Claude Desktop / OpenClaw / other MCP clients. Local use, no deployment.
+2. **Web workshop tool** (`src/bcm_planner/web/`) — a server-rendered FastAPI + Jinja2 app for live client workshops: fill in a BIA, generate a BCP/CMT plan, and download PDF exports, all through per-organization access-code links (no login system), deployed on Render. See [docs/web_workshop_tool.md](./docs/web_workshop_tool.md) for the tenant-isolation model, local run instructions, and Render deploy steps.
+
 ## Scope
 
 This is a personal-use tool, not intended for production deployment within any employer's environment. See [REQUIREMENTS.md](./REQUIREMENTS.md) for the full functional/non-functional requirements and the scope decision, and [DEVELOPMENT_PLAN.md](./DEVELOPMENT_PLAN.md) for the phased build plan.
@@ -165,6 +173,7 @@ A GitHub prior-art check (documented in REQUIREMENTS.md) found no open-source to
 - [docs/crisis_communication_templates.md](./docs/crisis_communication_templates.md) — Rule-based holding statement template set used by the Phase 3 `generate_holding_statement_draft` helper, and the escalation-path notification heuristic used by `get_escalation_path_for_severity`.
 - [docs/exercise_scenario_templates.md](./docs/exercise_scenario_templates.md) — Rule-based disruption scenario template set used by the Phase 4 `get_disruption_scenario_template` helper, the matching inject templates used by `generate_injects_from_scenario_template`, and the storyboard validation rules used by `get_exercise_storyboard`.
 - [docs/governance_lifecycle.md](./docs/governance_lifecycle.md) — The Phase 5 multi-tier sign-off state machine (`create_sign_off_chain`/`submit_sign_off_decision`/`get_sign_off_status`), the `compute_next_review_date` calendar-month heuristic, and the `document_review_schedule`/`document_versions` review-cycle + maintenance-log logic.
+- [docs/web_workshop_tool.md](./docs/web_workshop_tool.md) — The web workshop tool's tenant-isolation model, session/access-code flow, local run instructions, and Render deployment steps.
 - [schema/001_core_schema.sql](./schema/001_core_schema.sql) — Core PostgreSQL schema (Peter's proposal).
 - [schema/002_rbac_approvals_review_additions.sql](./schema/002_rbac_approvals_review_additions.sql) — RBAC, sign-off workflow, review scheduler additions.
 - [schema/SCHEMA_REVIEW.md](./schema/SCHEMA_REVIEW.md) — Review of the schema proposal against requirements, gaps found and closed.

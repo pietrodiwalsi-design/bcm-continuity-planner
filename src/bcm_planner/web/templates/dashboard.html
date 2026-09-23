@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}{{ organization.name }} — Workshop Dashboard{% endblock %}
+{% block content %}
+<div class="card">
+    <h1>{{ organization.name }}</h1>
+    <p class="muted">{{ organization.bcms_scope_description }}</p>
+</div>
+
+<div class="grid-2">
+    <div class="card">
+        <h2>Business Impact Analysis</h2>
+        <p>{{ activities|length }} activities registered.</p>
+        <a class="btn" href="/session/{{ session_token }}/bia">Open BIA workspace</a>
+    </div>
+    <div class="card">
+        <h2>Business Continuity Plans</h2>
+        <p>{{ bc_plans|length }} plan(s) generated.</p>
+        <a class="btn" href="/session/{{ session_token }}/bcp">Open BCP workspace</a>
+    </div>
+</div>
+
+<div class="card">
+    <h2>Crisis Management Team</h2>
+    <p>{{ cmt_roles|length }} CMT role(s) defined.</p>
+    <a class="btn" href="/session/{{ session_token }}/cmt">Open CMT workspace</a>
+</div>
+{% endblock %}

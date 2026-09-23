@@ -1,0 +1,44 @@
+# Render Blueprint for the web workshop tool (src/bcm_planner/web/).
+#
+# This deploys ONLY the second, public web deliverable described in
+# docs/web_workshop_tool.md — a Docker web service + a managed Postgres
+# instance. The existing MCP server (src/bcm_planner/mcp_server.py) is
+# unaffected: it continues to run locally via Claude Desktop's stdio
+# transport and is never deployed by this blueprint.
+#
+# Deploy: from the Render dashboard, "New +" -> "Blueprint" -> connect
+# this GitHub repo -> Render auto-detects this file. See
+# docs/web_workshop_tool.md "Deploying on Render" for the full manual
+# click-through steps (this repo has no Render API credentials
+# available in the environment that built this blueprint, so the
+# initial deploy has to be done once, by hand, from a Render account).
+
+databases:
+  - name: bcm-continuity-planner-db
+    plan: starter
+    databaseName: bcm_continuity_planner
+    user: bcm_admin
+    region: frankfurt
+
+services:
+  - type: web
+    name: bcm-continuity-planner-web
+    runtime: docker
+    plan: starter
+    region: frankfurt
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      # DATABASE_URL takes precedence over the discrete POSTGRES_* vars in
+      # src/bcm_planner/db.py (see .env.example) — Render's `fromDatabase`
+      # wiring below injects the managed Postgres instance's full connection
+      # string automatically, including credentials, with no manual
+      # copy-pasting of secrets needed in the Render dashboard.
+      - key: DATABASE_URL
+        fromDatabase:
+          name: bcm-continuity-planner-db
+          property: connectionString
+      # PORT is set automatically by Render at runtime; not declared here
+      # (see src/bcm_planner/web/app.py's main(), which reads os.environ["PORT"]).

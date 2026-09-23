@@ -18,12 +18,36 @@ dependencies = [
 dev = [
     "pytest>=7.0.0",
 ]
+# Web workshop tool (src/bcm_planner/web/) — a second, separate deliverable
+# alongside the FastMCP server above; both share the same bia_engine.py /
+# bcp_generator.py / crisis_management.py business logic. Kept as its own
+# optional group (not core deps) so `pip install -e .` for MCP-only use
+# (Claude Desktop) doesn't pull in FastAPI/WeasyPrint's native deps
+# unnecessarily; the Dockerfile/Render deploy installs `.[web]` explicitly.
+# See docs/web_workshop_tool.md.
+web = [
+    "fastapi>=0.110.0",
+    "jinja2>=3.1.0",
+    "python-multipart>=0.0.9",
+    "uvicorn[standard]>=0.29.0",
+    "weasyprint>=62.0",
+]
 
 [project.scripts]
 bcm-mcp = "bcm_planner.mcp_server:main"
+bcm-web = "bcm_planner.web.app:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+# Jinja2 HTML templates for the web workshop tool (src/bcm_planner/web/templates/)
+# are data files, not .py modules, so setuptools won't include them in the
+# built package/wheel by default. Without this, `pip install .` (as used by
+# the Dockerfile) installs the package but silently drops the templates
+# directory, causing a jinja2.exceptions.TemplateNotFound at runtime
+# (found and fixed during Docker image smoke-testing).
+[tool.setuptools.package-data]
+bcm_planner = ["web/templates/*.html", "web/templates/pdf/*.html"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -1,0 +1,54 @@
+{% extends "_base.html" %}
+{% block title %}Crisis Management Team Plan — {{ organization.name }}{% endblock %}
+{% block content %}
+<h1>Crisis Management Team Plan</h1>
+<div class="meta">
+    Organization: <strong>{{ organization.name }}</strong>{% if organization.industry %} &middot; {{ organization.industry }}{% endif %}
+</div>
+
+<h2>CMT Roster</h2>
+{% if cmt_roles %}
+<table>
+<thead><tr><th>Role</th><th>Primary Assignee</th><th>Primary Contact</th><th>Alternate Assignee</th><th>Key Responsibilities</th></tr></thead>
+<tbody>
+{% for role in cmt_roles %}
+<tr>
+<td>{{ role.role_name }}</td>
+<td>{{ role.primary_assignee_name }}</td>
+<td>{{ role.primary_assignee_phone }}<br>{{ role.primary_assignee_email }}</td>
+<td>{{ role.alternate_assignee_name or "—" }}{% if role.alternate_assignee_phone %}<br>{{ role.alternate_assignee_phone }}{% endif %}</td>
+<td>{{ role.key_responsibilities }}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+{% else %}
+<p class="empty-note">No CMT roles recorded for this workshop yet.</p>
+{% endif %}
+
+<h2>Escalation Triggers</h2>
+{% if escalation_triggers %}
+<table>
+<thead><tr><th>Severity</th><th>Incident Condition</th><th>Notification Timeframe (min)</th><th>Required Action</th></tr></thead>
+<tbody>
+{% for trigger in escalation_triggers %}
+<tr>
+<td>{{ trigger.severity_level }}</td>
+<td>{{ trigger.incident_condition }}</td>
+<td>{{ trigger.notification_timeframe_minutes }}</td>
+<td>{{ trigger.required_action }}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+{% else %}
+<p class="empty-note">No escalation triggers recorded for this workshop yet.</p>
+{% endif %}
+
+<div class="footer-note" style="margin-top: 20px;">
+    Note: this export intentionally excludes <code>message_bank</code> and
+    <code>stakeholder_contact_matrices</code> content, consistent with the
+    Phase 3 dashboard convention — draft messaging text and named external
+    contacts are not included in a general export by default.
+</div>
+{% endblock %}
