@@ -170,43 +170,75 @@ async def dashboard(request: Request, session_token: str) -> Response:
 # ---------------------------------------------------------------------------
 
 
+def _build_activity_details(conn, activities: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    activity_details = []
+    for activity in activities:
+        bia_list = bia_engine.list_bia_assessments_by_activity(conn, activity["activity_id"])
+        strategies = []
+        gaps = []
+        for bia in bia_list:
+            strategies.extend(bia_engine.list_recovery_strategies_by_bia(conn, bia["bia_id"]))
+            gaps.extend(bia_engine.list_gap_analyses_by_bia(conn, bia["bia_id"]))
+        spofs = bia_engine.detect_single_points_of_failure(conn, activity["activity_id"])
+        impact_matrix = bia_engine.get_impact_matrix_grid(conn, "activity", activity["activity_id"])
+        activity_details.append(
+            {
+                "activity": activity,
+                "bia_assessments": bia_list,
+                "recovery_strategies": strategies,
+                "gap_analyses": gaps,
+                "spofs": spofs,
+                "impact_matrix": impact_matrix,
+            }
+        )
+    return activity_details
+
+
 @app.get("/session/{session_token}/bia", response_class=HTMLResponse)
 async def bia_page(request: Request, session_token: str) -> Response:
     with db.get_connection() as conn:
         session = _resolve(conn, session_token)
         org_id = session["organization_id"]
         organization = bia_engine.get_organization(conn, org_id)
+        products = queries.list_products_services_by_organization(conn, org_id)
         units = queries.list_business_units_by_organization(conn, org_id)
         processes = queries.list_business_processes_by_organization(conn, org_id)
         activities = queries.list_activities_by_organization(conn, org_id)
+        resources = queries.list_resources_by_organization(conn, org_id)
 
-        activity_details = []
-        for activity in activities:
-            bia_list = bia_engine.list_bia_assessments_by_activity(conn, activity["activity_id"])
-            strategies = []
-            gaps = []
-            for bia in bia_list:
-                strategies.extend(bia_engine.list_recovery_strategies_by_bia(conn, bia["bia_id"]))
-                gaps.extend(bia_engine.list_gap_analyses_by_bia(conn, bia["bia_id"]))
-            spofs = bia_engine.detect_single_points_of_failure(conn, activity["activity_id"])
-            activity_details.append(
-                {
-                    "activity": activity,
-                    "bia_assessments": bia_list,
-                    "recovery_strategies": strategies,
-                    "gap_analyses": gaps,
-                    "spofs": spofs,
-                }
-            )
+        product_details = [
+            {"product": p, "impact_matrix": bia_engine.get_impact_matrix_grid(conn, "product_service", p["product_service_id"])}
+            for p in products
+        ]
+        process_details = [
+            {"process": p, "impact_matrix": bia_engine.get_impact_matrix_grid(conn, "business_process", p["process_id"])}
+            for p in processes
+        ]
+        activity_details = _build_activity_details(conn, activities)
+        resource_details = [
+            {"resource": r, "measures": bia_engine.list_resource_recovery_measures(conn, r["resource_id"])}
+            for r in resources
+        ]
     return templates.TemplateResponse(
         request,
         "bia.html",
         {
             "session_token": session_token,
             "organization": organization,
+            "products": products,
+            "product_details": product_details,
             "units": units,
             "processes": processes,
+            "process_details": process_details,
+            "activities": activities,
             "activity_details": activity_details,
+            "resource_details": resource_details,
+            "impact_categories": bia_engine.IMPACT_MATRIX_CATEGORIES,
+            "impact_category_labels": bia_engine.IMPACT_MATRIX_CATEGORY_LABELS,
+            "impact_timeframes": bia_engine.IMPACT_MATRIX_TIMEFRAMES,
+            "impact_timeframe_labels": bia_engine.IMPACT_MATRIX_TIMEFRAME_LABELS,
+            "impact_severities": bia_engine.IMPACT_MATRIX_SEVERITIES,
+            "recovery_measure_statuses": bia_engine.RESOURCE_RECOVERY_MEASURE_STATUSES,
         },
     )
 
@@ -219,9 +251,51 @@ async def create_unit(session_token: str, name: str = Form(...)) -> Response:
     return RedirectResponse(url=f"/session/{session_token}/bia?flash=Business+unit+created", status_code=303)
 
 
+@app.post("/session/{session_token}/bia/unit/{unit_id}/edit")
+async def edit_unit(session_token: str, unit_id: str, name: str = Form(...), code: Optional[str] = Form(None)) -> Response:
+    with db.get_connection() as conn:
+        session = _resolve(conn, session_token)
+        tenancy.get_business_unit_scoped(conn, session["organization_id"], unit_id)
+        bia_engine.update_business_unit(conn, session["admin_user_id"], unit_id, name=name, code=code or None)
+    return RedirectResponse(url=f"/session/{session_token}/bia?flash=Business+unit+updated", status_code=303)
+
+
+@app.post("/session/{session_token}/bia/product")
+async def create_product(
+    session_token: str, name: str = Form(...), description: Optional[str] = Form(None),
+    worst_case_scenario: Optional[str] = Form(None),
+) -> Response:
+    with db.get_connection() as conn:
+        session = _resolve(conn, session_token)
+        product = bia_engine.create_product_service(
+            conn, session["admin_user_id"], session["organization_id"], name, description=description or None,
+        )
+        if worst_case_scenario:
+            bia_engine.update_product_service(
+                conn, session["admin_user_id"], product["product_service_id"], worst_case_scenario=worst_case_scenario,
+            )
+    return RedirectResponse(url=f"/session/{session_token}/bia?flash=Product%2Fservice+created", status_code=303)
+
+
+@app.post("/session/{session_token}/bia/product/{product_service_id}/edit")
+async def edit_product(
+    session_token: str, product_service_id: str, name: str = Form(...),
+    description: Optional[str] = Form(None), worst_case_scenario: Optional[str] = Form(None),
+) -> Response:
+    with db.get_connection() as conn:
+        session = _resolve(conn, session_token)
+        tenancy.get_product_service_scoped(conn, session["organization_id"], product_service_id)
+        bia_engine.update_product_service(
+            conn, session["admin_user_id"], product_service_id, name=name,
+            description=description or None, worst_case_scenario=worst_case_scenario or None,
+        )
+    return RedirectResponse(url=f"/session/{session_token}/bia?flash=Product%2Fservice+updated", status_code=303)
+
+
 @app.post("/session/{session_token}/bia/process")
 async def create_process(
-    session_token: str, unit_id: str = Form(...), name: str = Form(...), process_owner: str = Form(...)
+    session_token: str, unit_id: str = Form(...), name: str = Form(...), process_owner: str = Form(...),
+    product_service_id: Optional[str] = Form(None), worst_case_scenario: Optional[str] = Form(None),
 ) -> Response:
     with db.get_connection() as conn:
         session = _resolve(conn, session_token)
@@ -229,20 +303,64 @@ async def create_process(
         unit = bia_engine.get_business_unit(conn, unit_id)
         if str(unit["organization_id"]) != str(session["organization_id"]):
             raise tenancy.TenantMismatchError("Business unit does not belong to this workshop's organization.")
-        bia_engine.create_business_process(conn, session["admin_user_id"], unit_id, name, process_owner)
+        if product_service_id:
+            tenancy.get_product_service_scoped(conn, session["organization_id"], product_service_id)
+        process = bia_engine.create_business_process(
+            conn, session["admin_user_id"], unit_id, name, process_owner,
+            product_service_id=product_service_id or None,
+        )
+        if worst_case_scenario:
+            bia_engine.update_business_process(
+                conn, session["admin_user_id"], process["process_id"], worst_case_scenario=worst_case_scenario,
+            )
     return RedirectResponse(url=f"/session/{session_token}/bia?flash=Business+process+created", status_code=303)
+
+
+@app.post("/session/{session_token}/bia/process/{process_id}/edit")
+async def edit_process(
+    session_token: str, process_id: str, name: str = Form(...), process_owner: str = Form(...),
+    worst_case_scenario: Optional[str] = Form(None),
+) -> Response:
+    with db.get_connection() as conn:
+        session = _resolve(conn, session_token)
+        tenancy.get_business_process_scoped(conn, session["organization_id"], process_id)
+        bia_engine.update_business_process(
+            conn, session["admin_user_id"], process_id, name=name, process_owner=process_owner,
+            worst_case_scenario=worst_case_scenario or None,
+        )
+    return RedirectResponse(url=f"/session/{session_token}/bia?flash=Business+process+updated", status_code=303)
 
 
 @app.post("/session/{session_token}/bia/activity")
 async def create_activity_route(
-    session_token: str, process_id: str = Form(...), name: str = Form(...), activity_owner: str = Form(...)
+    session_token: str, process_id: str = Form(...), name: str = Form(...), activity_owner: str = Form(...),
+    worst_case_scenario: Optional[str] = Form(None),
 ) -> Response:
     with db.get_connection() as conn:
         session = _resolve(conn, session_token)
         # Tenant isolation: verify the process belongs to this org first.
         tenancy.get_business_process_scoped(conn, session["organization_id"], process_id)
-        bia_engine.create_activity(conn, session["admin_user_id"], process_id, name, activity_owner)
+        activity = bia_engine.create_activity(conn, session["admin_user_id"], process_id, name, activity_owner)
+        if worst_case_scenario:
+            bia_engine.update_activity(
+                conn, session["admin_user_id"], activity["activity_id"], worst_case_scenario=worst_case_scenario,
+            )
     return RedirectResponse(url=f"/session/{session_token}/bia?flash=Activity+created", status_code=303)
+
+
+@app.post("/session/{session_token}/bia/activity/{activity_id}/edit")
+async def edit_activity_route(
+    session_token: str, activity_id: str, name: str = Form(...), activity_owner: str = Form(...),
+    worst_case_scenario: Optional[str] = Form(None),
+) -> Response:
+    with db.get_connection() as conn:
+        session = _resolve(conn, session_token)
+        tenancy.get_activity_scoped(conn, session["organization_id"], activity_id)
+        bia_engine.update_activity(
+            conn, session["admin_user_id"], activity_id, name=name, activity_owner=activity_owner,
+            worst_case_scenario=worst_case_scenario or None,
+        )
+    return RedirectResponse(url=f"/session/{session_token}/bia?flash=Activity+updated", status_code=303)
 
 
 @app.post("/session/{session_token}/bia/assessment")
@@ -265,6 +383,26 @@ async def create_assessment(
     return RedirectResponse(url=f"/session/{session_token}/bia?flash=BIA+assessment+recorded", status_code=303)
 
 
+@app.post("/session/{session_token}/bia/assessment/{bia_id}/edit")
+async def edit_assessment(
+    session_token: str,
+    bia_id: str,
+    assessor_name: str = Form(...),
+    mtpd_hours: int = Form(...),
+    rto_hours: int = Form(...),
+    rpo_hours: Optional[int] = Form(None),
+    mbco_percentage: float = Form(100.0),
+) -> Response:
+    with db.get_connection() as conn:
+        session = _resolve(conn, session_token)
+        tenancy.get_bia_assessment_scoped(conn, session["organization_id"], bia_id)
+        bia_engine.update_bia_assessment(
+            conn, session["admin_user_id"], bia_id, assessor_name=assessor_name, mtpd_hours=mtpd_hours,
+            rto_hours=rto_hours, rpo_hours=rpo_hours, mbco_percentage=mbco_percentage,
+        )
+    return RedirectResponse(url=f"/session/{session_token}/bia?flash=BIA+assessment+updated", status_code=303)
+
+
 @app.post("/session/{session_token}/bia/gap")
 async def create_gap(
     session_token: str,
@@ -284,6 +422,27 @@ async def create_gap(
     return RedirectResponse(url=f"/session/{session_token}/bia?flash=Gap+analysis+recorded", status_code=303)
 
 
+@app.post("/session/{session_token}/bia/gap/{gap_id}/edit")
+async def edit_gap(
+    session_token: str,
+    gap_id: str,
+    current_recovery_capability_hours: int = Form(...),
+    target_rto_hours: int = Form(...),
+    risk_summary: str = Form(...),
+    identified_spof: Optional[str] = Form(None),
+) -> Response:
+    with db.get_connection() as conn:
+        session = _resolve(conn, session_token)
+        tenancy.get_gap_analysis_scoped(conn, session["organization_id"], gap_id)
+        bia_engine.update_gap_analysis(
+            conn, session["admin_user_id"], gap_id,
+            current_recovery_capability_hours=current_recovery_capability_hours,
+            target_rto_hours=target_rto_hours, risk_summary=risk_summary,
+            identified_spof=identified_spof or None,
+        )
+    return RedirectResponse(url=f"/session/{session_token}/bia?flash=Gap+analysis+updated", status_code=303)
+
+
 @app.post("/session/{session_token}/bia/strategy")
 async def create_strategy(
     session_token: str,
@@ -301,6 +460,27 @@ async def create_strategy(
             is_selected_option=bool(is_selected_option),
         )
     return RedirectResponse(url=f"/session/{session_token}/bia?flash=Recovery+strategy+recorded", status_code=303)
+
+
+@app.post("/session/{session_token}/bia/strategy/{strategy_id}/edit")
+async def edit_strategy(
+    session_token: str,
+    strategy_id: str,
+    category: str = Form(...),
+    strategy_name: str = Form(...),
+    description: str = Form(...),
+    is_selected_option: Optional[str] = Form(None),
+) -> Response:
+    with db.get_connection() as conn:
+        session = _resolve(conn, session_token)
+        strategy = tenancy.get_recovery_strategy_scoped(conn, session["organization_id"], strategy_id)
+        bia_engine.update_recovery_strategy(
+            conn, session["admin_user_id"], strategy_id, category=category,
+            strategy_name=strategy_name, description=description,
+        )
+        if bool(is_selected_option):
+            bia_engine.select_recovery_strategy(conn, session["admin_user_id"], strategy["bia_id"], strategy_id)
+    return RedirectResponse(url=f"/session/{session_token}/bia?flash=Recovery+strategy+updated", status_code=303)
 
 
 @app.post("/session/{session_token}/bia/resource")
@@ -324,6 +504,96 @@ async def create_resource_dependency(
             minimum_quantity_required=minimum_quantity_required,
         )
     return RedirectResponse(url=f"/session/{session_token}/bia?flash=Resource+dependency+recorded", status_code=303)
+
+
+@app.post("/session/{session_token}/bia/resource/{resource_id}/edit")
+async def edit_resource(
+    session_token: str,
+    resource_id: str,
+    name: str = Form(...),
+    resource_type: str = Form(...),
+    is_single_point_of_failure: Optional[str] = Form(None),
+) -> Response:
+    with db.get_connection() as conn:
+        session = _resolve(conn, session_token)
+        tenancy.get_resource_scoped(conn, session["organization_id"], resource_id)
+        bia_engine.update_resource(
+            conn, session["admin_user_id"], resource_id, name=name, resource_type=resource_type,
+            is_single_point_of_failure=bool(is_single_point_of_failure),
+        )
+    return RedirectResponse(url=f"/session/{session_token}/bia?flash=Resource+updated", status_code=303)
+
+
+@app.post("/session/{session_token}/bia/resource/{resource_id}/measure")
+async def create_recovery_measure(
+    session_token: str,
+    resource_id: str,
+    measure_type: str = Form(...),
+    description: str = Form(...),
+    recovery_time_hours: Optional[int] = Form(None),
+    status: str = Form("not_started"),
+    owner: Optional[str] = Form(None),
+    estimated_cost: Optional[float] = Form(None),
+) -> Response:
+    with db.get_connection() as conn:
+        session = _resolve(conn, session_token)
+        tenancy.get_resource_scoped(conn, session["organization_id"], resource_id)
+        bia_engine.create_resource_recovery_measure(
+            conn, session["admin_user_id"], resource_id, measure_type, description,
+            recovery_time_hours=recovery_time_hours, status=status, owner=owner or None,
+            estimated_cost=estimated_cost,
+        )
+    return RedirectResponse(url=f"/session/{session_token}/bia?flash=Recovery+measure+recorded", status_code=303)
+
+
+@app.post("/session/{session_token}/bia/measure/{measure_id}/edit")
+async def edit_recovery_measure(
+    session_token: str,
+    measure_id: str,
+    measure_type: str = Form(...),
+    description: str = Form(...),
+    recovery_time_hours: Optional[int] = Form(None),
+    status: str = Form("not_started"),
+    owner: Optional[str] = Form(None),
+    estimated_cost: Optional[float] = Form(None),
+) -> Response:
+    with db.get_connection() as conn:
+        session = _resolve(conn, session_token)
+        tenancy.get_resource_recovery_measure_scoped(conn, session["organization_id"], measure_id)
+        bia_engine.update_resource_recovery_measure(
+            conn, session["admin_user_id"], measure_id, measure_type=measure_type, description=description,
+            recovery_time_hours=recovery_time_hours, status=status, owner=owner or None,
+            estimated_cost=estimated_cost,
+        )
+    return RedirectResponse(url=f"/session/{session_token}/bia?flash=Recovery+measure+updated", status_code=303)
+
+
+@app.post("/session/{session_token}/bia/impact-matrix")
+async def upsert_impact_matrix(
+    session_token: str,
+    scope_type: str = Form(...),
+    scope_id: str = Form(...),
+    category: str = Form(...),
+    timeframe_hours: int = Form(...),
+    severity: str = Form(...),
+    notes: Optional[str] = Form(None),
+) -> Response:
+    with db.get_connection() as conn:
+        session = _resolve(conn, session_token)
+        # Tenant isolation: verify scope_id belongs to this org before writing.
+        if scope_type == "product_service":
+            tenancy.get_product_service_scoped(conn, session["organization_id"], scope_id)
+        elif scope_type == "business_process":
+            tenancy.get_business_process_scoped(conn, session["organization_id"], scope_id)
+        elif scope_type == "activity":
+            tenancy.get_activity_scoped(conn, session["organization_id"], scope_id)
+        else:
+            raise bia_engine.BCMPlannerError(f"Invalid scope_type {scope_type!r}.")
+        bia_engine.upsert_impact_matrix_entry(
+            conn, session["admin_user_id"], scope_type, scope_id, category, timeframe_hours, severity,
+            notes=notes or None,
+        )
+    return RedirectResponse(url=f"/session/{session_token}/bia?flash=Impact+matrix+updated", status_code=303)
 
 
 @app.get("/session/{session_token}/bia/export.pdf")

@@ -1,6 +1,21 @@
 {% extends "base.html" %}
 {% block title %}BIA — {{ organization.name }}{% endblock %}
 {% block content %}
+<style>
+.impact-matrix { font-size: 12.5px; }
+.impact-matrix th, .impact-matrix td { text-align: center; }
+.impact-cell-form { margin: 0; }
+.severity-select { min-width: 90px; padding: 3px 4px; font-size: 12px; }
+.severity-unset { background: #f0f2f4; color: #888; }
+.severity-low { background: #d5f5e3; color: #1e7a3d; }
+.severity-medium { background: #fdf2c0; color: #8a6d00; }
+.severity-high { background: #fde3cf; color: #b5480a; }
+.severity-critical { background: #f8d0cb; color: #a3271b; }
+details.edit-toggle { margin: 6px 0; }
+details.edit-toggle summary { cursor: pointer; color: #0b3d5c; font-size: 13px; font-weight: 600; }
+form.inline textarea { width: 100%; min-width: 260px; }
+</style>
+
 <div class="card">
     <h1>Business Impact Analysis</h1>
     <p class="muted">{{ organization.name }}</p>
@@ -8,20 +23,60 @@
 </div>
 
 <div class="card">
-    <h2>1. Business unit</h2>
+    <h2>1. Product / Service</h2>
+    <form class="inline" method="post" action="/session/{{ session_token }}/bia/product">
+        <div><label>Name</label><input type="text" name="name" required></div>
+        <div><label>Description</label><input type="text" name="description"></div>
+        <div><label>Worst case scenario</label><textarea name="worst_case_scenario" rows="2"></textarea></div>
+        <button type="submit">Add product/service</button>
+    </form>
+    {% for pd in product_details %}
+    {% set p = pd.product %}
+    <div class="card" style="margin-top:12px;">
+        <h3>{{ p.name }}</h3>
+        <p class="muted">{{ p.description or "—" }}</p>
+        <p><strong>Worst case scenario:</strong> {{ p.worst_case_scenario or "Not yet documented." }}</p>
+        <details class="edit-toggle"><summary>Edit</summary>
+        <form class="inline" method="post" action="/session/{{ session_token }}/bia/product/{{ p.product_service_id }}/edit">
+            <div><label>Name</label><input type="text" name="name" value="{{ p.name }}" required></div>
+            <div><label>Description</label><input type="text" name="description" value="{{ p.description or '' }}"></div>
+            <div><label>Worst case scenario</label><textarea name="worst_case_scenario" rows="2">{{ p.worst_case_scenario or '' }}</textarea></div>
+            <button type="submit">Save changes</button>
+        </form>
+        </details>
+        <h4>Impact matrix</h4>
+        {% set scope_type = "product_service" %}
+        {% set scope_id = p.product_service_id %}
+        {% set impact_matrix = pd.impact_matrix %}
+        {% include "_impact_matrix.html" with context %}
+    </div>
+    {% endfor %}
+</div>
+
+<div class="card">
+    <h2>2. Business unit</h2>
     <form class="inline" method="post" action="/session/{{ session_token }}/bia/unit">
         <div><label>Name</label><input type="text" name="name" required></div>
         <button type="submit">Add business unit</button>
     </form>
     {% if units %}
-    <table><thead><tr><th>Name</th><th>Code</th></tr></thead><tbody>
-    {% for u in units %}<tr><td>{{ u.name }}</td><td>{{ u.code or "—" }}</td></tr>{% endfor %}
+    <table><thead><tr><th>Name</th><th>Code</th><th></th></tr></thead><tbody>
+    {% for u in units %}
+    <tr><td>{{ u.name }}</td><td>{{ u.code or "—" }}</td>
+    <td><details class="edit-toggle"><summary>Edit</summary>
+        <form class="inline" method="post" action="/session/{{ session_token }}/bia/unit/{{ u.unit_id }}/edit">
+            <div><label>Name</label><input type="text" name="name" value="{{ u.name }}" required></div>
+            <div><label>Code</label><input type="text" name="code" value="{{ u.code or '' }}"></div>
+            <button type="submit">Save</button>
+        </form>
+    </details></td></tr>
+    {% endfor %}
     </tbody></table>
     {% endif %}
 </div>
 
 <div class="card">
-    <h2>2. Business process</h2>
+    <h2>3. Business process</h2>
     {% if units %}
     <form class="inline" method="post" action="/session/{{ session_token }}/bia/process">
         <div><label>Unit</label>
@@ -29,20 +84,42 @@
             {% for u in units %}<option value="{{ u.unit_id }}">{{ u.name }}</option>{% endfor %}
             </select>
         </div>
+        <div><label>Product/service (optional)</label>
+            <select name="product_service_id">
+            <option value="">—</option>
+            {% for p in products %}<option value="{{ p.product_service_id }}">{{ p.name }}</option>{% endfor %}
+            </select>
+        </div>
         <div><label>Process name</label><input type="text" name="name" required></div>
         <div><label>Process owner</label><input type="text" name="process_owner" required></div>
+        <div><label>Worst case scenario</label><textarea name="worst_case_scenario" rows="2"></textarea></div>
         <button type="submit">Add process</button>
     </form>
     {% else %}<p class="empty-note muted">Add a business unit first.</p>{% endif %}
-    {% if processes %}
-    <table><thead><tr><th>Name</th><th>Owner</th></tr></thead><tbody>
-    {% for p in processes %}<tr><td>{{ p.name }}</td><td>{{ p.process_owner }}</td></tr>{% endfor %}
-    </tbody></table>
-    {% endif %}
+    {% for pd in process_details %}
+    {% set p = pd.process %}
+    <div class="card" style="margin-top:12px;">
+        <h3>{{ p.name }} <span class="muted">— {{ p.process_owner }}</span></h3>
+        <p><strong>Worst case scenario:</strong> {{ p.worst_case_scenario or "Not yet documented." }}</p>
+        <details class="edit-toggle"><summary>Edit</summary>
+        <form class="inline" method="post" action="/session/{{ session_token }}/bia/process/{{ p.process_id }}/edit">
+            <div><label>Name</label><input type="text" name="name" value="{{ p.name }}" required></div>
+            <div><label>Process owner</label><input type="text" name="process_owner" value="{{ p.process_owner }}" required></div>
+            <div><label>Worst case scenario</label><textarea name="worst_case_scenario" rows="2">{{ p.worst_case_scenario or '' }}</textarea></div>
+            <button type="submit">Save changes</button>
+        </form>
+        </details>
+        <h4>Impact matrix</h4>
+        {% set scope_type = "business_process" %}
+        {% set scope_id = p.process_id %}
+        {% set impact_matrix = pd.impact_matrix %}
+        {% include "_impact_matrix.html" with context %}
+    </div>
+    {% endfor %}
 </div>
 
 <div class="card">
-    <h2>3. Activity</h2>
+    <h2>4. Activity</h2>
     {% if processes %}
     <form class="inline" method="post" action="/session/{{ session_token }}/bia/activity">
         <div><label>Process</label>
@@ -52,15 +129,32 @@
         </div>
         <div><label>Activity name</label><input type="text" name="name" required></div>
         <div><label>Activity owner</label><input type="text" name="activity_owner" required></div>
+        <div><label>Worst case scenario</label><textarea name="worst_case_scenario" rows="2"></textarea></div>
         <button type="submit">Add activity</button>
     </form>
     {% else %}<p class="empty-note muted">Add a business process first.</p>{% endif %}
 </div>
 
 {% for entry in activity_details %}
+{% set activity = entry.activity %}
 <div class="card">
-    <h2>{{ entry.activity.name }} <span class="muted">({{ entry.activity.process_name }})</span></h2>
-    <p class="muted">Owner: {{ entry.activity.activity_owner }}</p>
+    <h2>{{ activity.name }} <span class="muted">({{ activity.process_name }})</span></h2>
+    <p class="muted">Owner: {{ activity.activity_owner }}</p>
+    <p><strong>Worst case scenario:</strong> {{ activity.worst_case_scenario or "Not yet documented." }}</p>
+    <details class="edit-toggle"><summary>Edit activity</summary>
+    <form class="inline" method="post" action="/session/{{ session_token }}/bia/activity/{{ activity.activity_id }}/edit">
+        <div><label>Name</label><input type="text" name="name" value="{{ activity.name }}" required></div>
+        <div><label>Activity owner</label><input type="text" name="activity_owner" value="{{ activity.activity_owner }}" required></div>
+        <div><label>Worst case scenario</label><textarea name="worst_case_scenario" rows="2">{{ activity.worst_case_scenario or '' }}</textarea></div>
+        <button type="submit">Save changes</button>
+    </form>
+    </details>
+
+    <h3>Impact matrix</h3>
+    {% set scope_type = "activity" %}
+    {% set scope_id = activity.activity_id %}
+    {% set impact_matrix = entry.impact_matrix %}
+    {% include "_impact_matrix.html" with context %}
 
     <h3>MTPD / RTO / RPO / MBCO</h3>
     <form class="inline" method="post" action="/session/{{ session_token }}/bia/assessment">
@@ -73,9 +167,19 @@
         <button type="submit">Record assessment</button>
     </form>
     {% if entry.bia_assessments %}
-    <table><thead><tr><th>Assessor</th><th>MTPD</th><th>RTO</th><th>RPO</th><th>MBCO%</th></tr></thead><tbody>
+    <table><thead><tr><th>Assessor</th><th>MTPD</th><th>RTO</th><th>RPO</th><th>MBCO%</th><th></th></tr></thead><tbody>
     {% for b in entry.bia_assessments %}
-    <tr><td>{{ b.assessor_name }}</td><td>{{ b.mtpd_hours }}</td><td>{{ b.rto_hours }}</td><td>{{ b.rpo_hours or "—" }}</td><td>{{ b.mbco_percentage }}</td></tr>
+    <tr><td>{{ b.assessor_name }}</td><td>{{ b.mtpd_hours }}</td><td>{{ b.rto_hours }}</td><td>{{ b.rpo_hours or "—" }}</td><td>{{ b.mbco_percentage }}</td>
+    <td><details class="edit-toggle"><summary>Edit</summary>
+        <form class="inline" method="post" action="/session/{{ session_token }}/bia/assessment/{{ b.bia_id }}/edit">
+            <div><label>Assessor</label><input type="text" name="assessor_name" value="{{ b.assessor_name }}" required></div>
+            <div><label>MTPD (h)</label><input type="number" name="mtpd_hours" value="{{ b.mtpd_hours }}" required min="1"></div>
+            <div><label>RTO (h)</label><input type="number" name="rto_hours" value="{{ b.rto_hours }}" required min="0"></div>
+            <div><label>RPO (h)</label><input type="number" name="rpo_hours" value="{{ b.rpo_hours or '' }}" min="0"></div>
+            <div><label>MBCO %</label><input type="number" step="0.01" name="mbco_percentage" value="{{ b.mbco_percentage }}"></div>
+            <button type="submit">Save</button>
+        </form>
+    </details></td></tr>
     {% endfor %}
     </tbody></table>
 
@@ -89,11 +193,20 @@
         <button type="submit">Record gap analysis</button>
     </form>
     {% if entry.gap_analyses %}
-    <table><thead><tr><th>Current (h)</th><th>Target (h)</th><th>Gap</th><th>Risk</th></tr></thead><tbody>
+    <table><thead><tr><th>Current (h)</th><th>Target (h)</th><th>Gap</th><th>Risk</th><th></th></tr></thead><tbody>
     {% for g in entry.gap_analyses %}
     <tr><td>{{ g.current_recovery_capability_hours }}</td><td>{{ g.target_rto_hours }}</td>
     <td>{% if g.gap_hours >= 0 %}<span class="badge badge-closed">{{ g.gap_hours }}h</span>{% else %}<span class="badge badge-open">{{ g.gap_hours }}h</span>{% endif %}</td>
-    <td>{{ g.risk_summary }}</td></tr>
+    <td>{{ g.risk_summary }}</td>
+    <td><details class="edit-toggle"><summary>Edit</summary>
+        <form class="inline" method="post" action="/session/{{ session_token }}/bia/gap/{{ g.gap_id }}/edit">
+            <div><label>Current (h)</label><input type="number" name="current_recovery_capability_hours" value="{{ g.current_recovery_capability_hours }}" required></div>
+            <div><label>Target RTO (h)</label><input type="number" name="target_rto_hours" value="{{ g.target_rto_hours }}" required></div>
+            <div><label>Risk summary</label><input type="text" name="risk_summary" value="{{ g.risk_summary }}" required></div>
+            <div><label>Identified SPOF</label><input type="text" name="identified_spof" value="{{ g.identified_spof or '' }}"></div>
+            <button type="submit">Save</button>
+        </form>
+    </details></td></tr>
     {% endfor %}
     </tbody></table>
     {% endif %}
@@ -117,9 +230,24 @@
         <button type="submit">Add strategy</button>
     </form>
     {% if entry.recovery_strategies %}
-    <table><thead><tr><th>Category</th><th>Name</th><th>Selected</th></tr></thead><tbody>
+    <table><thead><tr><th>Category</th><th>Name</th><th>Selected</th><th></th></tr></thead><tbody>
     {% for s in entry.recovery_strategies %}
-    <tr><td>{{ s.category }}</td><td>{{ s.strategy_name }}</td><td>{% if s.is_selected_option %}<span class="badge badge-selected">Yes</span>{% else %}—{% endif %}</td></tr>
+    <tr><td>{{ s.category }}</td><td>{{ s.strategy_name }}</td><td>{% if s.is_selected_option %}<span class="badge badge-selected">Yes</span>{% else %}—{% endif %}</td>
+    <td><details class="edit-toggle"><summary>Edit</summary>
+        <form class="inline" method="post" action="/session/{{ session_token }}/bia/strategy/{{ s.strategy_id }}/edit">
+            <div><label>Category</label>
+                <select name="category">
+                    {% for c in ["active_active","hot_standby","warm_standby","cold_site","work_from_home","manual_workaround"] %}
+                    <option value="{{ c }}" {% if s.category == c %}selected{% endif %}>{{ c }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div><label>Strategy name</label><input type="text" name="strategy_name" value="{{ s.strategy_name }}" required></div>
+            <div><label>Description</label><input type="text" name="description" value="{{ s.description }}" required></div>
+            <div><label><input type="checkbox" name="is_selected_option" value="1" {% if s.is_selected_option %}checked{% endif %}> Selected option</label></div>
+            <button type="submit">Save</button>
+        </form>
+    </details></td></tr>
     {% endfor %}
     </tbody></table>
     {% endif %}
@@ -151,4 +279,72 @@
     {% endif %}
 </div>
 {% endfor %}
+
+<div class="card">
+    <h2>5. Resources & recovery measures</h2>
+    <p class="muted">All resources registered for this organization, with their recovery/mitigation measures. Add resources via an activity above; manage recovery measures here.</p>
+    {% for rd in resource_details %}
+    {% set r = rd.resource %}
+    <div class="card" style="margin-top:12px;">
+        <h3>{{ r.name }} <span class="muted">({{ r.resource_type }})</span>
+        {% if r.is_single_point_of_failure %}<span class="badge badge-open">SPOF</span>{% endif %}</h3>
+        <details class="edit-toggle"><summary>Edit resource</summary>
+        <form class="inline" method="post" action="/session/{{ session_token }}/bia/resource/{{ r.resource_id }}/edit">
+            <div><label>Name</label><input type="text" name="name" value="{{ r.name }}" required></div>
+            <div><label>Type</label>
+                <select name="resource_type">
+                {% for t in ["personnel","technology","facility","equipment","supplier"] %}
+                <option value="{{ t }}" {% if r.resource_type == t %}selected{% endif %}>{{ t }}</option>
+                {% endfor %}
+                </select>
+            </div>
+            <div><label><input type="checkbox" name="is_single_point_of_failure" value="1" {% if r.is_single_point_of_failure %}checked{% endif %}> Single point of failure</label></div>
+            <button type="submit">Save</button>
+        </form>
+        </details>
+
+        <h4>Recovery measures</h4>
+        <form class="inline" method="post" action="/session/{{ session_token }}/bia/resource/{{ r.resource_id }}/measure">
+            <div><label>Measure type</label><input type="text" name="measure_type" placeholder="e.g. backup unit, alternate supplier" required></div>
+            <div><label>Description</label><input type="text" name="description" required></div>
+            <div><label>Recovery time (h)</label><input type="number" name="recovery_time_hours" min="0"></div>
+            <div><label>Status</label>
+                <select name="status">
+                {% for st in recovery_measure_statuses %}<option value="{{ st }}">{{ st.replace('_',' ') }}</option>{% endfor %}
+                </select>
+            </div>
+            <div><label>Owner</label><input type="text" name="owner"></div>
+            <div><label>Est. cost</label><input type="number" step="0.01" name="estimated_cost"></div>
+            <button type="submit">Add measure</button>
+        </form>
+        {% if rd.measures %}
+        <table><thead><tr><th>Type</th><th>Description</th><th>Recovery time (h)</th><th>Status</th><th>Owner</th><th></th></tr></thead><tbody>
+        {% for m in rd.measures %}
+        <tr><td>{{ m.measure_type }}</td><td>{{ m.description }}</td><td>{{ m.recovery_time_hours if m.recovery_time_hours is not none else "—" }}</td>
+        <td><span class="badge {% if m.status == 'in_place' %}badge-closed{% elif m.status == 'planned' %}badge-selected{% else %}badge-open{% endif %}">{{ m.status.replace('_',' ') }}</span></td>
+        <td>{{ m.owner or "—" }}</td>
+        <td><details class="edit-toggle"><summary>Edit</summary>
+            <form class="inline" method="post" action="/session/{{ session_token }}/bia/measure/{{ m.measure_id }}/edit">
+                <div><label>Type</label><input type="text" name="measure_type" value="{{ m.measure_type }}" required></div>
+                <div><label>Description</label><input type="text" name="description" value="{{ m.description }}" required></div>
+                <div><label>Recovery time (h)</label><input type="number" name="recovery_time_hours" value="{{ m.recovery_time_hours or '' }}" min="0"></div>
+                <div><label>Status</label>
+                    <select name="status">
+                    {% for st in recovery_measure_statuses %}<option value="{{ st }}" {% if m.status == st %}selected{% endif %}>{{ st.replace('_',' ') }}</option>{% endfor %}
+                    </select>
+                </div>
+                <div><label>Owner</label><input type="text" name="owner" value="{{ m.owner or '' }}"></div>
+                <div><label>Est. cost</label><input type="number" step="0.01" name="estimated_cost" value="{{ m.estimated_cost or '' }}"></div>
+                <button type="submit">Save</button>
+            </form>
+        </details></td></tr>
+        {% endfor %}
+        </tbody></table>
+        {% else %}
+        <p class="empty-note muted">No recovery measures recorded yet.</p>
+        {% endif %}
+    </div>
+    {% endfor %}
+    {% if not resource_details %}<p class="empty-note muted">No resources registered yet.</p>{% endif %}
+</div>
 {% endblock %}

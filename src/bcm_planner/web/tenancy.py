@@ -47,7 +47,11 @@ __all__ = [
     "resolve_session",
     "get_activity_scoped",
     "get_business_process_scoped",
+    "get_product_service_scoped",
+    "get_resource_scoped",
+    "get_business_unit_scoped",
     "get_bia_assessment_scoped",
+    "get_gap_analysis_scoped",
     "get_recovery_strategy_scoped",
     "get_bc_plan_scoped",
     "get_cmt_role_scoped",
@@ -169,6 +173,67 @@ def get_business_process_scoped(
     return row
 
 
+def get_business_unit_scoped(
+    conn: psycopg.Connection, organization_id: UUID | str, unit_id: UUID | str
+) -> dict[str, Any]:
+    """business_units carries organization_id directly."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT * FROM business_units WHERE unit_id = %s", (str(unit_id),))
+        row = cur.fetchone()
+    if row is None:
+        raise NotFoundError(f"Business unit {unit_id} not found.")
+    if str(row["organization_id"]) != str(organization_id):
+        raise TenantMismatchError(
+            f"Business unit {unit_id} does not belong to organization {organization_id}."
+        )
+    return row
+
+
+def get_product_service_scoped(
+    conn: psycopg.Connection, organization_id: UUID | str, product_service_id: UUID | str
+) -> dict[str, Any]:
+    """products_services carries organization_id directly."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT * FROM products_services WHERE product_service_id = %s", (str(product_service_id),))
+        row = cur.fetchone()
+    if row is None:
+        raise NotFoundError(f"Product/service {product_service_id} not found.")
+    if str(row["organization_id"]) != str(organization_id):
+        raise TenantMismatchError(
+            f"Product/service {product_service_id} does not belong to organization {organization_id}."
+        )
+    return row
+
+
+def get_resource_scoped(
+    conn: psycopg.Connection, organization_id: UUID | str, resource_id: UUID | str
+) -> dict[str, Any]:
+    """resources carries organization_id directly."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT * FROM resources WHERE resource_id = %s", (str(resource_id),))
+        row = cur.fetchone()
+    if row is None:
+        raise NotFoundError(f"Resource {resource_id} not found.")
+    if str(row["organization_id"]) != str(organization_id):
+        raise TenantMismatchError(
+            f"Resource {resource_id} does not belong to organization {organization_id}."
+        )
+    return row
+
+
+def get_resource_recovery_measure_scoped(
+    conn: psycopg.Connection, organization_id: UUID | str, measure_id: UUID | str
+) -> dict[str, Any]:
+    """resource_recovery_measures -> resources -> organization_id directly."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT * FROM resource_recovery_measures WHERE measure_id = %s", (str(measure_id),))
+        row = cur.fetchone()
+    if row is None:
+        raise NotFoundError(f"Resource recovery measure {measure_id} not found.")
+    get_resource_scoped(conn, organization_id, row["resource_id"])  # raises if mismatched
+    return row
+
+
 def get_bia_assessment_scoped(
     conn: psycopg.Connection, organization_id: UUID | str, bia_id: UUID | str
 ) -> dict[str, Any]:
@@ -185,6 +250,19 @@ def get_bia_assessment_scoped(
         raise TenantMismatchError(
             f"BIA assessment {bia_id} does not belong to organization {organization_id}."
         )
+    return row
+
+
+def get_gap_analysis_scoped(
+    conn: psycopg.Connection, organization_id: UUID | str, gap_id: UUID | str
+) -> dict[str, Any]:
+    """gap_analyses -> bia_assessments -> activities -> ... -> organizations."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT * FROM gap_analyses WHERE gap_id = %s", (str(gap_id),))
+        row = cur.fetchone()
+    if row is None:
+        raise NotFoundError(f"Gap analysis {gap_id} not found.")
+    get_bia_assessment_scoped(conn, organization_id, row["bia_id"])  # raises if mismatched
     return row
 
 

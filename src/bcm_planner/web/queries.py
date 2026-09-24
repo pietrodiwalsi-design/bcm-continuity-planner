@@ -23,8 +23,10 @@ import psycopg
 
 __all__ = [
     "list_business_units_by_organization",
+    "list_products_services_by_organization",
     "list_business_processes_by_organization",
     "list_activities_by_organization",
+    "list_resources_by_organization",
     "list_bcp_action_steps_and_bau_for_org",
 ]
 
@@ -33,6 +35,24 @@ def list_business_units_by_organization(conn: psycopg.Connection, organization_i
     with conn.cursor() as cur:
         cur.execute(
             "SELECT * FROM business_units WHERE organization_id = %s ORDER BY name",
+            (str(organization_id),),
+        )
+        return cur.fetchall()
+
+
+def list_products_services_by_organization(conn: psycopg.Connection, organization_id: UUID | str) -> list[dict[str, Any]]:
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT * FROM products_services WHERE organization_id = %s ORDER BY name",
+            (str(organization_id),),
+        )
+        return cur.fetchall()
+
+
+def list_resources_by_organization(conn: psycopg.Connection, organization_id: UUID | str) -> list[dict[str, Any]]:
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT * FROM resources WHERE organization_id = %s ORDER BY name",
             (str(organization_id),),
         )
         return cur.fetchall()

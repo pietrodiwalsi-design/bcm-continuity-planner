@@ -1,0 +1,39 @@
+{# Reusable impact matrix grid partial.
+   Expects: session_token, scope_type, scope_id, impact_matrix (dict keyed by
+   (category, timeframe_hours) -> entry row), impact_categories,
+   impact_category_labels, impact_timeframes, impact_timeframe_labels,
+   impact_severities.
+   Each cell is its own tiny form posting to /bia/impact-matrix (upsert —
+   works for both first-time save and later edits, same endpoint). #}
+<table class="impact-matrix">
+<thead>
+<tr>
+<th>Category</th>
+{% for tf in impact_timeframes %}<th>{{ impact_timeframe_labels[tf] }}</th>{% endfor %}
+</tr>
+</thead>
+<tbody>
+{% for cat in impact_categories %}
+<tr>
+<td><strong>{{ impact_category_labels[cat] }}</strong></td>
+{% for tf in impact_timeframes %}
+{% set entry = impact_matrix.get((cat, tf)) %}
+<td class="impact-cell">
+<form class="impact-cell-form" method="post" action="/session/{{ session_token }}/bia/impact-matrix">
+    <input type="hidden" name="scope_type" value="{{ scope_type }}">
+    <input type="hidden" name="scope_id" value="{{ scope_id }}">
+    <input type="hidden" name="category" value="{{ cat }}">
+    <input type="hidden" name="timeframe_hours" value="{{ tf }}">
+    <select name="severity" class="severity-select severity-{{ entry.severity if entry else 'unset' }}" onchange="this.form.submit()">
+        <option value="" {% if not entry %}selected{% endif %} disabled>—</option>
+        {% for sev in impact_severities %}
+        <option value="{{ sev }}" {% if entry and entry.severity == sev %}selected{% endif %}>{{ sev|capitalize }}</option>
+        {% endfor %}
+    </select>
+</form>
+</td>
+{% endfor %}
+</tr>
+{% endfor %}
+</tbody>
+</table>

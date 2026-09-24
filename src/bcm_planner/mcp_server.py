@@ -118,6 +118,18 @@ def create_product_service(
 
 
 @mcp.tool()
+def update_product_service(user_id: str, product_service_id: str, fields: dict[str, Any]) -> dict[str, Any]:
+    """Updates mutable fields on a product/service. fields may include:
+    name, description, priority_ranking, worst_case_scenario.
+    """
+    try:
+        with db.get_connection() as conn:
+            return bia_engine.update_product_service(conn, user_id, product_service_id, **fields)
+    except bia_engine.BCMPlannerError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
 def create_business_process(
     user_id: str, unit_id: str, name: str, process_owner: str,
     product_service_id: Optional[str] = None, is_outsourced: bool = False,
@@ -126,6 +138,18 @@ def create_business_process(
     try:
         with db.get_connection() as conn:
             return bia_engine.create_business_process(conn, user_id, unit_id, name, process_owner, product_service_id, is_outsourced)
+    except bia_engine.BCMPlannerError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def update_business_process(user_id: str, process_id: str, fields: dict[str, Any]) -> dict[str, Any]:
+    """Updates mutable fields on a business process. fields may include:
+    name, process_owner, product_service_id, is_outsourced, worst_case_scenario.
+    """
+    try:
+        with db.get_connection() as conn:
+            return bia_engine.update_business_process(conn, user_id, process_id, **fields)
     except bia_engine.BCMPlannerError as exc:
         return _err(exc)
 
@@ -140,6 +164,18 @@ def create_activity(
     try:
         with db.get_connection() as conn:
             return bia_engine.create_activity(conn, user_id, process_id, name, activity_owner, parent_activity_id, description, is_prioritised)
+    except bia_engine.BCMPlannerError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def update_activity(user_id: str, activity_id: str, fields: dict[str, Any]) -> dict[str, Any]:
+    """Updates mutable fields on an activity. fields may include: name,
+    description, activity_owner, is_prioritised, worst_case_scenario.
+    """
+    try:
+        with db.get_connection() as conn:
+            return bia_engine.update_activity(conn, user_id, activity_id, **fields)
     except bia_engine.BCMPlannerError as exc:
         return _err(exc)
 
@@ -166,6 +202,88 @@ def create_resource(
             )
     except bia_engine.BCMPlannerError as exc:
         return _err(exc)
+
+
+@mcp.tool()
+def update_resource(user_id: str, resource_id: str, fields: dict[str, Any]) -> dict[str, Any]:
+    """Updates mutable fields on a resource. fields may include: name,
+    description, location, is_single_point_of_failure, resource_type.
+    """
+    try:
+        with db.get_connection() as conn:
+            return bia_engine.update_resource(conn, user_id, resource_id, **fields)
+    except bia_engine.BCMPlannerError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def create_resource_recovery_measure(
+    user_id: str, resource_id: str, measure_type: str, description: str,
+    recovery_time_hours: Optional[int] = None, status: str = "not_started",
+    owner: Optional[str] = None, estimated_cost: Optional[float] = None,
+) -> dict[str, Any]:
+    """Creates a recovery measure (backup/redundancy mitigation) attached
+    directly to a resource. status must be one of: not_started, planned,
+    in_place. Distinct from recovery_strategies (which hang off a BIA/activity).
+    """
+    try:
+        with db.get_connection() as conn:
+            return bia_engine.create_resource_recovery_measure(
+                conn, user_id, resource_id, measure_type, description,
+                recovery_time_hours, status, owner, estimated_cost,
+            )
+    except bia_engine.BCMPlannerError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def update_resource_recovery_measure(user_id: str, measure_id: str, fields: dict[str, Any]) -> dict[str, Any]:
+    """Updates mutable fields on a resource recovery measure. fields may
+    include: measure_type, description, recovery_time_hours, status, owner,
+    estimated_cost.
+    """
+    try:
+        with db.get_connection() as conn:
+            return bia_engine.update_resource_recovery_measure(conn, user_id, measure_id, **fields)
+    except bia_engine.BCMPlannerError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def list_resource_recovery_measures(resource_id: str) -> list[dict[str, Any]]:
+    """Lists all recovery measures for a resource."""
+    with db.get_connection() as conn:
+        return bia_engine.list_resource_recovery_measures(conn, resource_id)
+
+
+@mcp.tool()
+def upsert_impact_matrix_entry(
+    user_id: str, scope_type: str, scope_id: str, category: str,
+    timeframe_hours: int, severity: str, notes: Optional[str] = None,
+) -> dict[str, Any]:
+    """Creates or updates one cell of the impact matrix grid.
+
+    scope_type: one of product_service, business_process, activity.
+    category: one of financial, reputation_customer, operational, compliance.
+    timeframe_hours: one of 1, 4, 8, 24 (1 day), 72 (3 days), 168 (1 week).
+    severity: one of low, medium, high, critical.
+    Idempotent: calling again for the same (scope_type, scope_id, category,
+    timeframe_hours) updates the existing cell rather than erroring.
+    """
+    try:
+        with db.get_connection() as conn:
+            return bia_engine.upsert_impact_matrix_entry(
+                conn, user_id, scope_type, scope_id, category, timeframe_hours, severity, notes,
+            )
+    except bia_engine.BCMPlannerError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def list_impact_matrix_entries(scope_type: str, scope_id: str) -> list[dict[str, Any]]:
+    """Lists all impact matrix entries recorded for a given scope (product/service, process, or activity)."""
+    with db.get_connection() as conn:
+        return bia_engine.list_impact_matrix_entries(conn, scope_type, scope_id)
 
 
 @mcp.tool()

@@ -15,6 +15,7 @@
 {% set activity = entry.activity %}
 <h2>{{ activity.name }}</h2>
 <div class="meta">Owner: {{ activity.activity_owner }}{% if activity.description %} &middot; {{ activity.description }}{% endif %}</div>
+<div class="meta"><strong>Worst case scenario:</strong> {{ activity.worst_case_scenario or "Not documented." }}</div>
 
 <h3>MTPD / RTO / RPO / MBCO Assessments</h3>
 {% if entry.bia_assessments %}

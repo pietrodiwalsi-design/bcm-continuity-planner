@@ -55,6 +55,31 @@ class RTOConstraintViolation(BCMPlannerError):
 
 
 # ---------------------------------------------------------------------------
+# Impact matrix (schema/005) — scope x category x timeframe -> severity grid.
+# Scope is polymorphic (product_service / business_process / activity),
+# mirroring the (entity_type, entity_id) pattern used by sign_off_approvals
+# in schema/002_rbac_approvals_review_additions.sql.
+# ---------------------------------------------------------------------------
+
+IMPACT_MATRIX_SCOPE_TYPES: tuple[str, ...] = ("product_service", "business_process", "activity")
+
+IMPACT_MATRIX_CATEGORIES: tuple[str, ...] = ("financial", "reputation_customer", "operational", "compliance")
+IMPACT_MATRIX_CATEGORY_LABELS: dict[str, str] = {
+    "financial": "Financial",
+    "reputation_customer": "Reputation / Customer Satisfaction",
+    "operational": "Operational",
+    "compliance": "Compliance",
+}
+
+IMPACT_MATRIX_TIMEFRAMES: tuple[int, ...] = (1, 4, 8, 24, 72, 168)
+IMPACT_MATRIX_TIMEFRAME_LABELS: dict[int, str] = {
+    1: "1H", 4: "4H", 8: "8H", 24: "1 Day", 72: "3 Days", 168: "1 Week",
+}
+
+IMPACT_MATRIX_SEVERITIES: tuple[str, ...] = ("low", "medium", "high", "critical")
+
+
+# ---------------------------------------------------------------------------
 # RBAC
 # ---------------------------------------------------------------------------
 
@@ -178,6 +203,43 @@ def get_organization(conn: psycopg.Connection, organization_id: UUID | str) -> d
     return row
 
 
+# ---------------------------------------------------------------------------
+# Generic edit-in-place helper (schema/005 feedback: "can't adjust data once
+# saved"). Every entity below gets a matching `update_*` wrapper around this
+# so route handlers never write ad-hoc UPDATE SQL. table/id_column are always
+# hardcoded string literals supplied by our own wrapper functions below —
+# never derived from request input — so building the SET clause from the
+# (whitelist-checked) `fields` keys is safe.
+# ---------------------------------------------------------------------------
+
+
+def _update_entity(
+    conn: psycopg.Connection,
+    user_id: UUID | str,
+    table: str,
+    id_column: str,
+    id_value: UUID | str,
+    allowed_fields: frozenset[str],
+    fields: dict[str, Any],
+    not_found_message: str,
+) -> dict[str, Any]:
+    require_role(conn, user_id, WRITE_ROLES)
+    unknown = set(fields) - allowed_fields
+    if unknown:
+        raise BCMPlannerError(f"Unknown/immutable {table} field(s): {', '.join(sorted(unknown))}")
+    if not fields:
+        raise BCMPlannerError(f"update on {table} called with no fields to update.")
+    set_clause = ", ".join(f"{k} = %s" for k in fields)
+    params = list(fields.values()) + [str(id_value)]
+    with conn.cursor() as cur:
+        cur.execute(f"UPDATE {table} SET {set_clause} WHERE {id_column} = %s RETURNING *", params)
+        row = cur.fetchone()
+    if row is None:
+        raise NotFoundError(not_found_message)
+    log_audit(conn, user_id, "UPDATE", table, id_value, fields)
+    return row
+
+
 def create_business_unit(
     conn: psycopg.Connection,
     user_id: UUID | str,
@@ -211,6 +273,28 @@ def get_business_unit(conn: psycopg.Connection, unit_id: UUID | str) -> dict[str
     if row is None:
         raise NotFoundError(f"Business unit {unit_id} not found.")
     return row
+
+
+def update_product_service(
+    conn: psycopg.Connection, user_id: UUID | str, product_service_id: UUID | str, **fields: Any,
+) -> dict[str, Any]:
+    """Allowed fields: name, description, priority_ranking, worst_case_scenario."""
+    return _update_entity(
+        conn, user_id, "products_services", "product_service_id", product_service_id,
+        frozenset({"name", "description", "priority_ranking", "worst_case_scenario"}), fields,
+        f"Product/service {product_service_id} not found.",
+    )
+
+
+def update_business_unit(
+    conn: psycopg.Connection, user_id: UUID | str, unit_id: UUID | str, **fields: Any,
+) -> dict[str, Any]:
+    """Allowed fields: name, code, head_of_unit."""
+    return _update_entity(
+        conn, user_id, "business_units", "unit_id", unit_id,
+        frozenset({"name", "code", "head_of_unit"}), fields,
+        f"Business unit {unit_id} not found.",
+    )
 
 
 def create_product_service(
@@ -250,6 +334,17 @@ def get_product_service(conn: psycopg.Connection, product_service_id: UUID | str
     return row
 
 
+def update_business_process(
+    conn: psycopg.Connection, user_id: UUID | str, process_id: UUID | str, **fields: Any,
+) -> dict[str, Any]:
+    """Allowed fields: name, process_owner, product_service_id, is_outsourced, worst_case_scenario."""
+    return _update_entity(
+        conn, user_id, "business_processes", "process_id", process_id,
+        frozenset({"name", "process_owner", "product_service_id", "is_outsourced", "worst_case_scenario"}), fields,
+        f"Business process {process_id} not found.",
+    )
+
+
 def create_business_process(
     conn: psycopg.Connection,
     user_id: UUID | str,
@@ -281,6 +376,17 @@ def get_business_process(conn: psycopg.Connection, process_id: UUID | str) -> di
     if row is None:
         raise NotFoundError(f"Business process {process_id} not found.")
     return row
+
+
+def update_activity(
+    conn: psycopg.Connection, user_id: UUID | str, activity_id: UUID | str, **fields: Any,
+) -> dict[str, Any]:
+    """Allowed fields: name, description, activity_owner, is_prioritised, worst_case_scenario."""
+    return _update_entity(
+        conn, user_id, "activities", "activity_id", activity_id,
+        frozenset({"name", "description", "activity_owner", "is_prioritised", "worst_case_scenario"}), fields,
+        f"Activity {activity_id} not found.",
+    )
 
 
 def create_activity(
@@ -362,6 +468,17 @@ def get_activity_tree(conn: psycopg.Connection, process_id: UUID | str) -> list[
 # ---------------------------------------------------------------------------
 # Resources & dependencies
 # ---------------------------------------------------------------------------
+
+
+def update_resource(
+    conn: psycopg.Connection, user_id: UUID | str, resource_id: UUID | str, **fields: Any,
+) -> dict[str, Any]:
+    """Allowed fields: name, description, location, is_single_point_of_failure, resource_type."""
+    return _update_entity(
+        conn, user_id, "resources", "resource_id", resource_id,
+        frozenset({"name", "description", "location", "is_single_point_of_failure", "resource_type"}), fields,
+        f"Resource {resource_id} not found.",
+    )
 
 
 def create_resource(
@@ -728,6 +845,20 @@ def list_gap_analyses_by_bia(conn: psycopg.Connection, bia_id: UUID | str) -> li
         return cur.fetchall()
 
 
+def update_gap_analysis(
+    conn: psycopg.Connection, user_id: UUID | str, gap_id: UUID | str, **fields: Any,
+) -> dict[str, Any]:
+    """Allowed fields: current_recovery_capability_hours, target_rto_hours,
+    risk_summary, identified_spof. gap_hours is DB GENERATED ALWAYS AS
+    STORED and recomputes automatically when either hours field changes.
+    """
+    return _update_entity(
+        conn, user_id, "gap_analyses", "gap_id", gap_id,
+        frozenset({"current_recovery_capability_hours", "target_rto_hours", "risk_summary", "identified_spof"}), fields,
+        f"Gap analysis {gap_id} not found.",
+    )
+
+
 def detect_single_points_of_failure(conn: psycopg.Connection, activity_id: UUID | str) -> list[dict[str, Any]]:
     """Cross-references resources.is_single_point_of_failure = true against
     activity_resource_dependencies for the given activity. Returns the
@@ -825,3 +956,173 @@ def list_recovery_strategies_by_bia(conn: psycopg.Connection, bia_id: UUID | str
     with conn.cursor() as cur:
         cur.execute("SELECT * FROM recovery_strategies WHERE bia_id = %s ORDER BY strategy_name", (str(bia_id),))
         return cur.fetchall()
+
+
+def update_recovery_strategy(
+    conn: psycopg.Connection, user_id: UUID | str, strategy_id: UUID | str, **fields: Any,
+) -> dict[str, Any]:
+    """Allowed fields: category, strategy_name, description, estimated_implementation_cost, prerequisites.
+    Use select_recovery_strategy (not this) to change is_selected_option, so
+    the "only one selected per bia_id" invariant always goes through that
+    dedicated, transaction-safe path.
+    """
+    return _update_entity(
+        conn, user_id, "recovery_strategies", "strategy_id", strategy_id,
+        frozenset({"category", "strategy_name", "description", "estimated_implementation_cost", "prerequisites"}), fields,
+        f"Recovery strategy {strategy_id} not found.",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Resource recovery measures (schema/005) — mitigations/backup arrangements
+# attached directly to a resource, distinct from activity-level
+# recovery_strategies above (which hang off a bia_id).
+# ---------------------------------------------------------------------------
+
+RESOURCE_RECOVERY_MEASURE_STATUSES: tuple[str, ...] = ("not_started", "planned", "in_place")
+
+
+def create_resource_recovery_measure(
+    conn: psycopg.Connection,
+    user_id: UUID | str,
+    resource_id: UUID | str,
+    measure_type: str,
+    description: str,
+    recovery_time_hours: Optional[int] = None,
+    status: str = "not_started",
+    owner: Optional[str] = None,
+    estimated_cost: Optional[float] = None,
+) -> dict[str, Any]:
+    require_role(conn, user_id, WRITE_ROLES)
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO resource_recovery_measures
+                (resource_id, measure_type, description, recovery_time_hours, status, owner, estimated_cost)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            RETURNING *
+            """,
+            (str(resource_id), measure_type, description, recovery_time_hours, status, owner, estimated_cost),
+        )
+        row = cur.fetchone()
+    log_audit(
+        conn, user_id, "CREATE", "resource_recovery_measures", row["measure_id"],
+        {"resource_id": str(resource_id), "measure_type": measure_type, "status": status},
+    )
+    return row
+
+
+def update_resource_recovery_measure(
+    conn: psycopg.Connection, user_id: UUID | str, measure_id: UUID | str, **fields: Any,
+) -> dict[str, Any]:
+    """Allowed fields: measure_type, description, recovery_time_hours, status, owner, estimated_cost."""
+    return _update_entity(
+        conn, user_id, "resource_recovery_measures", "measure_id", measure_id,
+        frozenset({"measure_type", "description", "recovery_time_hours", "status", "owner", "estimated_cost"}), fields,
+        f"Resource recovery measure {measure_id} not found.",
+    )
+
+
+def get_resource_recovery_measure(conn: psycopg.Connection, measure_id: UUID | str) -> dict[str, Any]:
+    with conn.cursor() as cur:
+        cur.execute("SELECT * FROM resource_recovery_measures WHERE measure_id = %s", (str(measure_id),))
+        row = cur.fetchone()
+    if row is None:
+        raise NotFoundError(f"Resource recovery measure {measure_id} not found.")
+    return row
+
+
+def list_resource_recovery_measures(conn: psycopg.Connection, resource_id: UUID | str) -> list[dict[str, Any]]:
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT * FROM resource_recovery_measures WHERE resource_id = %s ORDER BY created_at", (str(resource_id),)
+        )
+        return cur.fetchall()
+
+
+# ---------------------------------------------------------------------------
+# Impact matrix entries (schema/005) — scope x category x timeframe -> severity.
+# Scope is polymorphic (product_service / business_process / activity); the
+# caller is always responsible for having already verified `scope_id`
+# belongs to the acting org (tenancy.py's get_*_scoped helpers), same
+# pattern as sign_off_approvals in schema/002.
+# ---------------------------------------------------------------------------
+
+
+def _validate_impact_matrix_inputs(scope_type: str, category: str, timeframe_hours: int, severity: str) -> None:
+    if scope_type not in IMPACT_MATRIX_SCOPE_TYPES:
+        raise BCMPlannerError(
+            f"Invalid scope_type {scope_type!r}. Must be one of: {', '.join(IMPACT_MATRIX_SCOPE_TYPES)}"
+        )
+    if category not in IMPACT_MATRIX_CATEGORIES:
+        raise BCMPlannerError(
+            f"Invalid category {category!r}. Must be one of: {', '.join(IMPACT_MATRIX_CATEGORIES)}"
+        )
+    if timeframe_hours not in IMPACT_MATRIX_TIMEFRAMES:
+        raise BCMPlannerError(
+            f"Invalid timeframe_hours {timeframe_hours!r}. Must be one of: {', '.join(str(t) for t in IMPACT_MATRIX_TIMEFRAMES)}"
+        )
+    if severity not in IMPACT_MATRIX_SEVERITIES:
+        raise BCMPlannerError(
+            f"Invalid severity {severity!r}. Must be one of: {', '.join(IMPACT_MATRIX_SEVERITIES)}"
+        )
+
+
+def upsert_impact_matrix_entry(
+    conn: psycopg.Connection,
+    user_id: UUID | str,
+    scope_type: str,
+    scope_id: UUID | str,
+    category: str,
+    timeframe_hours: int,
+    severity: str,
+    notes: Optional[str] = None,
+) -> dict[str, Any]:
+    """Creates or updates the (scope_type, scope_id, category, timeframe_hours)
+    cell of the impact matrix grid in one call — this is how the workshop UI's
+    single grid form (one cell = one severity dropdown) saves an edit,
+    whether the cell already had a value or not (ON CONFLICT DO UPDATE on the
+    entry_id's UNIQUE constraint), directly answering the "can't adjust data
+    once saved" feedback for this table.
+    """
+    require_role(conn, user_id, WRITE_ROLES)
+    _validate_impact_matrix_inputs(scope_type, category, timeframe_hours, severity)
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO impact_matrix_entries (scope_type, scope_id, category, timeframe_hours, severity, notes)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            ON CONFLICT (scope_type, scope_id, category, timeframe_hours)
+            DO UPDATE SET severity = EXCLUDED.severity, notes = EXCLUDED.notes, updated_at = CURRENT_TIMESTAMP
+            RETURNING *
+            """,
+            (scope_type, str(scope_id), category, timeframe_hours, severity, notes),
+        )
+        row = cur.fetchone()
+    log_audit(
+        conn, user_id, "UPSERT", "impact_matrix_entries", row["entry_id"],
+        {"scope_type": scope_type, "scope_id": str(scope_id), "category": category, "timeframe_hours": timeframe_hours, "severity": severity},
+    )
+    return row
+
+
+def list_impact_matrix_entries(conn: psycopg.Connection, scope_type: str, scope_id: UUID | str) -> list[dict[str, Any]]:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT * FROM impact_matrix_entries
+            WHERE scope_type = %s AND scope_id = %s
+            ORDER BY category, timeframe_hours
+            """,
+            (scope_type, str(scope_id)),
+        )
+        return cur.fetchall()
+
+
+def get_impact_matrix_grid(conn: psycopg.Connection, scope_type: str, scope_id: UUID | str) -> dict[tuple[str, int], dict[str, Any]]:
+    """Convenience shape for template rendering: {(category, timeframe_hours): entry_row}.
+    Cells with no entry yet are simply absent from the dict — the template
+    checks `.get((category, timeframe))` and renders an empty/"not set" cell.
+    """
+    entries = list_impact_matrix_entries(conn, scope_type, scope_id)
+    return {(e["category"], e["timeframe_hours"]): e for e in entries}
